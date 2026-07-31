@@ -386,38 +386,53 @@ app.delete('/api/districts/:id', requireAuth, requireRole('admin'), async (c) =>
   return c.json({ success: true, message: 'District deleted' });
 });
 
-// ── File Upload ──────────────────────────────────────────
+// ── File Upload (single or multiple) ─────────────────────
 app.post('/api/images/upload', requireAuth, async (c) => {
   const body = await c.req.parseBody();
-  const file = body.file as File;
-  if (!file) return c.json({ success: false, message: 'No file provided' }, 400);
+  
+  // Support multiple files: body.files[] or single body.file
+  const files: File[] = [];
+  if (body.file) files.push(body.file as File);
+  if (body.files) {
+    const multi = Array.isArray(body.files) ? body.files : [body.files];
+    multi.forEach((f: any) => { if (f && typeof f === 'object' && f.name) files.push(f as File); });
+  }
+  
+  if (files.length === 0) {
+    return c.json({ success: false, message: 'No file provided. Use "file" for single or "files" for multiple.' }, 400);
+  }
 
-  // Validate file type
   const allowedTypes = [
     'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif',
     'application/pdf',
     'video/mp4', 'video/webm', 'video/quicktime',
   ];
-  if (!allowedTypes.includes(file.type)) {
-    return c.json({ success: false, message: 'Invalid file type. Allowed: JPEG, PNG, WebP, GIF, AVIF, PDF, MP4, WebM, MOV' }, 400);
+
+  const results = [];
+  for (const file of files) {
+    if (!allowedTypes.includes(file.type)) {
+      results.push({ error: `Skipped ${file.name}: invalid type ${file.type}` });
+      continue;
+    }
+
+    const isVideo = file.type.startsWith('video/');
+    const maxSize = isVideo ? 50 * 1024 * 1024 : 10 * 1024 * 1024;
+    if (file.size > maxSize) {
+      results.push({ error: `Skipped ${file.name}: too large (max ${isVideo ? '50MB' : '10MB'})` });
+      continue;
+    }
+
+    let folder = 'images';
+    if (file.type === 'application/pdf') folder = 'documents';
+    else if (file.type.startsWith('video/')) folder = 'videos';
+
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const key = `listings/${folder}/${Date.now()}-${safeName}`;
+    await c.env.IMAGES.put(key, file.stream() as any, { httpMetadata: { contentType: file.type } });
+    results.push({ key, url: `/api/images/${key}`, type: file.type, size: file.size, name: file.name });
   }
 
-  // Validate file size (max 50MB for videos, 10MB for others)
-  const isVideo = file.type.startsWith('video/');
-  const maxSize = isVideo ? 50 * 1024 * 1024 : 10 * 1024 * 1024;
-  if (file.size > maxSize) {
-    return c.json({ success: false, message: `File too large. Max ${isVideo ? '50MB' : '10MB'}` }, 400);
-  }
-
-  // Determine folder based on type
-  let folder = 'images';
-  if (file.type === 'application/pdf') folder = 'documents';
-  else if (file.type.startsWith('video/')) folder = 'videos';
-
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const key = `listings/${folder}/${Date.now()}-${safeName}`;
-  await c.env.IMAGES.put(key, file.stream() as any, { httpMetadata: { contentType: file.type } });
-  return c.json({ success: true, data: { key, url: `/api/images/${key}`, type: file.type, size: file.size } }, 201);
+  return c.json({ success: true, data: results }, 201);
 });
 
 app.get('/api/images/:key', async (c) => {
@@ -452,7 +467,8 @@ function rowToListing(row: any) {
     amenities: safeJsonParse(row.amenities, []),
     images: safeJsonParse(row.images, []).map((url: string) => ({
       url,
-      type: url.match(/\.(mp4|webm|mov)(\?|$)/i) ? 'video' :
+      type: isYouTube(url) ? 'youtube' :
+            url.match(/\.(mp4|webm|mov)(\?|$)/i) ? 'video' :
             url.match(/\.(pdf)(\?|$)/i) ? 'pdf' : 'image'
     })),
     priceDisplay: `₦${Number(row.price).toLocaleString()}`,
@@ -476,6 +492,11 @@ function rowToListing(row: any) {
 function safeJsonParse(val: any, fallback: any) {
   if (!val) return fallback;
   try { return typeof val === 'string' ? JSON.parse(val) : val; } catch { return fallback; }
+}
+
+function isYouTube(url: string): boolean {
+  if (!url) return false;
+  return /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)/i.test(url);
 }
 
 export default app;

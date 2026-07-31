@@ -1987,6 +1987,17 @@ footer {
     cursor: not-allowed;
 }
 
+/* YouTube embed wrapper */
+.yt-embed-wrap {
+    position: relative;
+    width: 100%;
+    height: 380px;
+    background: #000;
+}
+@media (max-width: 640px) {
+    .yt-embed-wrap { height: 240px; }
+}
+
 /* ==========================================================================
    Skeleton Loading
    ========================================================================== */

@@ -470,6 +470,13 @@ function renderDetailPage(listing) {
       <a href="#g${prevIdx+1}" class="gal-arrow gal-prev" aria-label="Previous"><i class="fa-solid fa-chevron-left"></i></a>
       <a href="#g${nextIdx+1}" class="gal-arrow gal-next" aria-label="Next"><i class="fa-solid fa-chevron-right"></i></a>`;
 
+    if (img.type === 'youtube') {
+      const videoId = getYouTubeId(img.url);
+      return `<div class="gallery-slide" id="g${i+1}">
+        <div class="yt-embed-wrap">
+          <iframe src="https://www.youtube.com/embed/${videoId}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="width:100%;height:380px;border:0;"></iframe>
+        </div>${arrows}</div>`;
+    }
     if (img.type === 'video') {
       return `<div class="gallery-slide" id="g${i+1}">
         <video src="${esc(img.url)}" controls preload="metadata" style="width:100%;height:380px;object-fit:cover;background:#000;" onclick="event.stopPropagation()">
@@ -493,13 +500,16 @@ function renderDetailPage(listing) {
   if (images.length > 1) {
     const slides = images.map(renderSlide).join('');
     const dots = images.map((_, i) => {
-      const icon = _.type === 'video' ? 'fa-play' : _.type === 'pdf' ? 'fa-file-pdf' : 'fa-image';
+      const icon = _.type === 'youtube' ? 'fa-youtube' : _.type === 'video' ? 'fa-play' : _.type === 'pdf' ? 'fa-file-pdf' : 'fa-image';
       return `<a href="#g${i+1}" aria-label="View item ${i+1}" title="${_.type}"><i class="fa-solid ${icon}"></i></a>`;
     }).join('');
     galleryHTML = `<div class="gallery"><div class="gallery-track">${slides}</div><div class="gallery-dots">${dots}</div></div>`;
   } else {
     const img = images[0];
-    if (img.type === 'video') {
+    if (img.type === 'youtube') {
+      const vid = getYouTubeId(img.url);
+      galleryHTML = `<div class="detail-img-large"><div class="yt-embed-wrap"><iframe src="https://www.youtube.com/embed/${vid}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen style="width:100%;height:380px;border:0;"></iframe></div></div>`;
+    } else if (img.type === 'video') {
       galleryHTML = `<div class="detail-img-large"><video src="${esc(img.url)}" controls preload="metadata" style="width:100%;height:380px;object-fit:cover;background:#000;"></video></div>`;
     } else if (img.type === 'pdf') {
       galleryHTML = `<div class="detail-img-large" style="display:flex;align-items:center;justify-content:center;background:#f8fafc;flex-direction:column;gap:12px;"><i class="fa-solid fa-file-pdf" style="font-size:5rem;color:#dc2626;"></i><a href="${esc(img.url)}" target="_blank" class="btn btn-outline">View Document</a></div>`;
@@ -853,6 +863,13 @@ function lightboxKeyHandler(e) {
   if (e.key === '+') lightboxZoom(0.25);
   if (e.key === '-') lightboxZoom(-0.25);
   if (e.key === '0') lightboxResetZoom();
+}
+
+/* ── YouTube Helper ─────────────────────────────────────── */
+function getYouTubeId(url) {
+  if (!url) return '';
+  var m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+  return m ? m[1] : '';
 }
 
 /* ── Districts Loader (Areas Page) ──────────────────────── */
