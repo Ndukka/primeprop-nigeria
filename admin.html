@@ -496,6 +496,7 @@
     <div style="display:flex;gap:8px;margin-bottom:16px;">
       <button class="btn btn-sm tab-btn tab-active" id="tabListings" onclick="switchTab('listings')" style="border-radius:8px;">📋 Listings</button>
       <button class="btn btn-sm tab-btn btn-outline" id="tabDistricts" onclick="switchTab('districts')" style="border-radius:8px;">🗺️ Districts</button>
+      <button class="btn btn-sm tab-btn btn-outline" id="tabUsers" onclick="switchTab('users')" style="border-radius:8px;">👥 Users</button>
     </div>
 
     <!-- Toolbar (listings) -->
@@ -558,6 +559,14 @@
         <tbody id="districtsTableBody">
           <tr><td colspan="6" class="empty-state-admin"><i class="fa-solid fa-spinner"></i> Loading…</td></tr>
         </tbody>
+      </table>
+    </div>
+
+    <!-- Users Table -->
+    <div class="table-wrap" id="usersTableWrap" style="display:none;">
+      <table>
+        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th><th>Logins</th><th>Joined</th><th>Actions</th></tr></thead>
+        <tbody id="usersTableBody"><tr><td colspan="8" class="empty-state-admin"><i class="fa-solid fa-spinner"></i><p>Loading…</p></td></tr></tbody>
       </table>
     </div>
   </div>
@@ -821,6 +830,55 @@
     </div>
   </div>
 
+  <!-- User Edit Modal -->
+  <div class="modal-overlay" id="userModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="userModalTitle">Edit User</h2>
+        <button class="modal-close" onclick="closeUserModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="userForm">
+          <input type="hidden" id="userFormId">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Name</label>
+              <input type="text" id="userFormName" required>
+            </div>
+            <div class="form-group">
+              <label>Email</label>
+              <input type="email" id="userFormEmail" required>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Role</label>
+              <select id="userFormRole">
+                <option value="user">User</option>
+                <option value="agent">Agent</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Phone</label>
+              <input type="text" id="userFormPhone">
+            </div>
+          </div>
+          <div class="form-row full">
+            <div class="form-group">
+              <label>Reset Password (leave blank to keep current)</label>
+              <input type="password" id="userFormPassword" placeholder="New password" autocomplete="new-password">
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeUserModal()">Cancel</button>
+        <button class="btn btn-primary" id="userModalSaveBtn" onclick="saveUser()">Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Confirm Delete Dialog -->
   <div class="confirm-dialog" id="confirmDialog">
     <div class="confirm-box">
@@ -892,7 +950,9 @@
     // Hide districts tab for non-admins
     if (!isAdmin()) {
       const tabDistricts = document.getElementById('tabDistricts');
+      const tabUsers = document.getElementById('tabUsers');
       if (tabDistricts) tabDistricts.style.display = 'none';
+      if (tabUsers) tabUsers.style.display = 'none';
     }
 
     // ── State ──────────────────────────────────────────────
@@ -922,32 +982,48 @@
       activeTab = tab;
       const tabListings = document.getElementById('tabListings');
       const tabDistricts = document.getElementById('tabDistricts');
+      const tabUsers = document.getElementById('tabUsers');
       const listingsTableWrap = document.getElementById('listingsTableWrap');
       const districtsTableWrap = document.getElementById('districtsTableWrap');
+      const usersTableWrap = document.getElementById('usersTableWrap');
       const listingsToolbar = document.getElementById('listingsToolbar');
       const addButton = document.getElementById('addButton');
+
+      // Reset all tabs
+      [tabListings, tabDistricts, tabUsers].forEach(b => {
+        b.classList.remove('tab-active');
+        b.classList.add('btn-outline');
+      });
 
       if (tab === 'listings') {
         tabListings.classList.add('tab-active');
         tabListings.classList.remove('btn-outline');
-        tabDistricts.classList.remove('tab-active');
-        tabDistricts.classList.add('btn-outline');
         listingsTableWrap.style.display = '';
         districtsTableWrap.style.display = 'none';
+        usersTableWrap.style.display = 'none';
         listingsToolbar.style.display = '';
         addButton.innerHTML = '<i class="fa-solid fa-plus"></i> Add Listing';
         addButton.onclick = openAddModal;
-      } else {
+      } else if (tab === 'districts') {
         tabDistricts.classList.add('tab-active');
         tabDistricts.classList.remove('btn-outline');
-        tabListings.classList.remove('tab-active');
-        tabListings.classList.add('btn-outline');
         listingsTableWrap.style.display = 'none';
         districtsTableWrap.style.display = '';
+        usersTableWrap.style.display = 'none';
         listingsToolbar.style.display = 'none';
         addButton.innerHTML = '<i class="fa-solid fa-plus"></i> Add District';
         addButton.onclick = openDistrictModal;
         loadDistrictsData();
+      } else if (tab === 'users') {
+        tabUsers.classList.add('tab-active');
+        tabUsers.classList.remove('btn-outline');
+        listingsTableWrap.style.display = 'none';
+        districtsTableWrap.style.display = 'none';
+        usersTableWrap.style.display = '';
+        listingsToolbar.style.display = 'none';
+        addButton.innerHTML = '<i class="fa-solid fa-plus"></i> Add User';
+        addButton.onclick = openUserModal;
+        loadUsersData();
       }
     }
 
@@ -1495,8 +1571,188 @@
       document.getElementById('loadingOverlay').classList.toggle('active', on);
     }
 
+    // ── Users Management ───────────────────────────────────
+    async function loadUsersData() {
+      try {
+        const res = await apiFetch('/auth/users');
+        const data = await res.json();
+        const users = data.data || [];
+        const tbody = document.getElementById('usersTableBody');
+        if (users.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="8" class="empty-state-admin"><p>No users found</p></td></tr>';
+          return;
+        }
+        tbody.innerHTML = users.map(u => `<tr>
+          <td style="font-weight:600;">${u.name}</td>
+          <td>${u.email}</td>
+          <td><span class="badge badge-${u.role==='admin'?'sale':'rent'}">${u.role}</span></td>
+          <td>${u.account_status==='banned'?'<span style="color:#dc2626;">🚫 Banned</span>':'<span style="color:#16a34a;">✅ Active</span>'}</td>
+          <td style="color:#64748b;">${u.last_login_at || 'Never'}</td>
+          <td>${u.login_count || 0}</td>
+          <td style="color:#64748b;">${(u.created_at||'').split(' ')[0]}</td>
+          <td class="actions-cell">
+            ${u.account_status==='banned'
+              ? '<button class="btn btn-success btn-xs" onclick="unbanUser('+u.id+')" title="Unban"><i class="fa-solid fa-unlock"></i></button>'
+              : '<button class="btn btn-outline btn-xs" onclick="banUser('+u.id+',\''+u.name+'\')" title="Ban"><i class="fa-solid fa-ban"></i></button>'}
+            <button class="btn btn-outline btn-xs" onclick="openUserModal(${u.id})" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>
+            ${u.role!=='admin' ? '<button class="btn btn-danger btn-xs" onclick="deleteUser('+u.id+',\''+u.name+'\')" title="Delete"><i class="fa-solid fa-trash"></i></button>' : ''}
+          </td></tr>`).join('');
+      } catch(e) { console.error(e); }
+    }
+
+    async function banUser(id, name) {
+      if (!confirm(`Ban user "${name}"? They will not be able to log in.`)) return;
+      try {
+        showLoading(true);
+        await apiFetch(`/auth/users/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_status: 'banned' })
+        });
+        showToast('User banned.', 'success');
+        loadUsersData();
+      } catch(e) {
+        showToast('Failed to ban user.', 'error');
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    async function unbanUser(id) {
+      try {
+        showLoading(true);
+        await apiFetch(`/auth/users/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_status: 'active' })
+        });
+        showToast('User unbanned.', 'success');
+        loadUsersData();
+      } catch(e) {
+        showToast('Failed to unban user.', 'error');
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    async function deleteUser(id, name) {
+      if (!confirm(`Delete user "${name}"? This cannot be undone.`)) return;
+      try {
+        showLoading(true);
+        const res = await apiFetch(`/auth/users/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('User deleted.', 'success');
+          loadUsersData();
+        } else {
+          showToast(data.message || 'Failed to delete user.', 'error');
+        }
+      } catch(e) {
+        showToast('Network error.', 'error');
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    let userEditId = null;
+
+    function openUserModal(id) {
+      userEditId = id || null;
+      document.getElementById('userModalTitle').textContent = id ? 'Edit User' : 'Add User';
+      document.getElementById('userModalSaveBtn').textContent = id ? 'Update User' : 'Create User';
+
+      if (id) {
+        apiFetch(`/auth/users/${id}`).then(r => r.json()).then(d => {
+          if (d.success && d.data) {
+            const u = d.data;
+            document.getElementById('userFormId').value = u.id;
+            document.getElementById('userFormName').value = u.name || '';
+            document.getElementById('userFormEmail').value = u.email || '';
+            document.getElementById('userFormRole').value = u.role || 'user';
+            document.getElementById('userFormPhone').value = u.phone || '';
+            document.getElementById('userFormPassword').value = '';
+          }
+        }).catch(() => {});
+      } else {
+        resetUserForm();
+      }
+
+      document.getElementById('userModal').classList.add('active');
+    }
+
+    function closeUserModal() {
+      document.getElementById('userModal').classList.remove('active');
+      resetUserForm();
+      userEditId = null;
+    }
+
+    function resetUserForm() {
+      document.getElementById('userForm').reset();
+      document.getElementById('userFormId').value = '';
+      document.getElementById('userFormRole').value = 'user';
+      document.getElementById('userFormPassword').value = '';
+    }
+
+    async function saveUser() {
+      const name = document.getElementById('userFormName').value.trim();
+      const email = document.getElementById('userFormEmail').value.trim();
+      const role = document.getElementById('userFormRole').value;
+      const phone = document.getElementById('userFormPhone').value.trim();
+      const password = document.getElementById('userFormPassword').value;
+
+      if (!name || !email) {
+        showToast('Name and email are required.', 'error');
+        return;
+      }
+
+      const userData = { name, email, role, phone };
+      if (password) userData.password = password;
+
+      const isEdit = userEditId !== null;
+      const url = isEdit ? `/auth/users/${userEditId}` : '/auth/register';
+      const method = isEdit ? 'PUT' : 'POST';
+
+      try {
+        showLoading(true);
+        const res = await apiFetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(userData)
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(isEdit ? 'User updated!' : 'User created!', 'success');
+          closeUserModal();
+          loadUsersData();
+        } else {
+          showToast(data.message || 'Failed to save user.', 'error');
+        }
+      } catch(e) {
+        showToast('Network error.', 'error');
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    // ── Cities ─────────────────────────────────────────────
+    async function loadCities() {
+      try {
+        const res = await fetch('/api/cities');
+        const data = await res.json();
+        const cities = data.data || [];
+        document.querySelectorAll('select[id$="City"]').forEach(sel => {
+          if (sel.dataset.dynamic) return;
+          sel.dataset.dynamic = '1';
+          const val = sel.value;
+          sel.innerHTML = cities.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+          if (val) sel.value = val;
+        });
+      } catch(e) {}
+    }
+
     // ── Init ───────────────────────────────────────────────
     loadData();
+    loadCities();
 
     // Close modal on overlay click
     document.getElementById('listingModal').addEventListener('click', function(e) {
@@ -1504,6 +1760,9 @@
     });
     document.getElementById('districtModal').addEventListener('click', function(e) {
       if (e.target === this) closeDistrictModal();
+    });
+    document.getElementById('userModal').addEventListener('click', function(e) {
+      if (e.target === this) closeUserModal();
     });
     document.getElementById('confirmDialog').addEventListener('click', function(e) {
       if (e.target === this) closeConfirm();
@@ -1514,6 +1773,7 @@
       if (e.key === 'Escape') {
         if (document.getElementById('listingModal').classList.contains('active')) closeModal();
         if (document.getElementById('districtModal').classList.contains('active')) closeDistrictModal();
+        if (document.getElementById('userModal').classList.contains('active')) closeUserModal();
         if (document.getElementById('confirmDialog').classList.contains('active')) closeConfirm();
       }
     });

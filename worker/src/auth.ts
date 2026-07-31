@@ -221,6 +221,11 @@ authRoutes.post('/login', async (c) => {
     c.env.JWT_SECRET
   );
 
+  // Track login
+  await c.env.DB.prepare(
+    'UPDATE users SET last_login_at = datetime(\'now\'), login_count = login_count + 1 WHERE id = ?'
+  ).bind(user.id).run();
+
   const csrf = generateCSRF();
 
   return c.json({
@@ -263,7 +268,7 @@ authRoutes.get('/session', requireAuth, async (c) => {
 // GET /auth/users — list all users
 authRoutes.get('/users', requireAuth, requireRole('admin'), async (c) => {
   const { results } = await c.env.DB.prepare(
-    'SELECT id, email, name, role, avatar_url, phone, account_status, created_at FROM users ORDER BY id ASC'
+    'SELECT id, email, name, role, avatar_url, phone, account_status, last_login_at, login_count, created_at FROM users ORDER BY id ASC'
   ).all();
   return c.json({ success: true, data: results });
 });

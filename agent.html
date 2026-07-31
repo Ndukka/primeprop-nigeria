@@ -179,6 +179,25 @@
     document.getElementById('agentName').textContent = USER.name;
     document.getElementById('statRole').textContent = USER.role;
 
+    // Load dynamic cities
+    loadCities();
+
+    async function loadCities() {
+      try {
+        const res = await fetch('/api/cities');
+        const data = await res.json();
+        const cities = data.data || [];
+        if (cities.length > 0) {
+          const sel = document.getElementById('formCity');
+          if (sel) {
+            const current = sel.value;
+            sel.innerHTML = cities.map(function(c){ return '<option value="'+c.name+'">'+c.name+'</option>'; }).join('');
+            if (current) sel.value = current;
+          }
+        }
+      } catch(e) {}
+    }
+
     async function apiFetch(url, opts) {
       opts = opts || {};
       opts.headers = Object.assign({}, opts.headers || {}, { 'Authorization': 'Bearer ' + TOKEN });

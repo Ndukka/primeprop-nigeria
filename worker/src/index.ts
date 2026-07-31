@@ -454,6 +454,45 @@ app.get('/api/images/:key', async (c) => {
   return new Response(object.body as any, { headers: headers as any });
 });
 
+// ── Cities CRUD ───────────────────────────────────────────
+app.get('/api/cities', async (c) => {
+  c.header('Cache-Control', 'public, max-age=3600');
+  const { results } = await c.env.DB.prepare('SELECT * FROM cities ORDER BY name ASC').all();
+  return c.json({ success: true, data: results });
+});
+
+app.post('/api/cities', requireAuth, requireRole('admin'), async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!body) return c.json({ success: false, message: 'Invalid request' }, 400);
+  const name = sanitizeString(body.name, 100);
+  const state = sanitizeString(body.state, 100);
+  if (!name) return c.json({ success: false, message: 'City name required' }, 400);
+  // Check duplicate
+  const exists = await c.env.DB.prepare('SELECT id FROM cities WHERE name = ?').bind(name).first();
+  if (exists) return c.json({ success: false, message: 'City already exists' }, 409);
+  const result = await c.env.DB.prepare('INSERT INTO cities (name, state) VALUES (?,?)').bind(name, state).run();
+  const created = await c.env.DB.prepare('SELECT * FROM cities WHERE id = ?').bind(result.meta.last_row_id).first();
+  return c.json({ success: true, data: created }, 201);
+});
+
+app.put('/api/cities/:id', requireAuth, requireRole('admin'), async (c) => {
+  const id = parseInt(c.req.param('id'));
+  const body = await c.req.json().catch(() => null);
+  if (!body) return c.json({ success: false, message: 'Invalid request' }, 400);
+  const name = sanitizeString(body.name, 100);
+  if (!name) return c.json({ success: false, message: 'City name required' }, 400);
+  await c.env.DB.prepare('UPDATE cities SET name = ?, state = ? WHERE id = ?').bind(name, sanitizeString(body.state, 100), id).run();
+  const updated = await c.env.DB.prepare('SELECT * FROM cities WHERE id = ?').bind(id).first();
+  if (!updated) return c.json({ success: false, message: 'City not found' }, 404);
+  return c.json({ success: true, data: updated });
+});
+
+app.delete('/api/cities/:id', requireAuth, requireRole('admin'), async (c) => {
+  const id = parseInt(c.req.param('id'));
+  await c.env.DB.prepare('DELETE FROM cities WHERE id = ?').bind(id).run();
+  return c.json({ success: true, message: 'City deleted' });
+});
+
 // ── Auth Routes ───────────────────────────────────────────
 app.route('/auth', authRoutes);
 
