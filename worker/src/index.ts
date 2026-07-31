@@ -37,13 +37,22 @@ app.use('*', async (c, next) => {
   );
 });
 
-// ── CORS ──────────────────────────────────────────────────
+// ── CORS + Cache ──────────────────────────────────────────
 const ALLOWED_ORIGINS = [
   'https://primeprop-worker.ndupsn.workers.dev',
   'https://primeprop.ng',
   'http://localhost:3001',
   'http://localhost:8787',
 ];
+
+app.use('*', async (c, next) => {
+  await next();
+  // Cache GET responses for 60 seconds (browser cache)
+  if (c.req.method === 'GET' && c.res.status === 200) {
+    c.res.headers.set('Cache-Control', 'public, max-age=60, s-maxage=60, stale-while-revalidate=300');
+    c.res.headers.set('Vary', 'Accept-Encoding, Origin');
+  }
+});
 
 app.use('*', cors({
   origin: (origin) => {

@@ -27,29 +27,59 @@ function getFeatures(listing) {
 }
 
 /* ── API ─────────────────────────────────────────────────── */
+const _cache = new Map();
+const CACHE_TTL = 60000; // 60 second client cache
+
+function getCached(key) {
+  const entry = _cache.get(key);
+  if (entry && Date.now() - entry.time < CACHE_TTL) return entry.data;
+  _cache.delete(key);
+  return null;
+}
+
+function setCache(key, data) {
+  _cache.set(key, { data, time: Date.now() });
+}
+
 async function fetchListings(filters = {}) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([k, v]) => { if (v !== '' && v !== null && v !== undefined && v !== 'all') params.set(k, v); });
+  const url = API_BASE + '?' + params.toString();
+  const cached = getCached(url);
+  if (cached) return cached;
+
   try {
-    const res = await fetch(API_BASE + '?' + params.toString());
+    const res = await fetch(url);
     const data = await res.json();
-    return data.success ? data.data : [];
+    const result = data.success ? data.data : [];
+    setCache(url, result);
+    return result;
   } catch (err) { console.error('Fetch error:', err); return []; }
 }
 
 async function fetchListing(id) {
+  const url = API_BASE + '/' + id;
+  const cached = getCached(url);
+  if (cached) return cached;
   try {
-    const res = await fetch(API_BASE + '/' + id);
+    const res = await fetch(url);
     const data = await res.json();
-    return data.success ? data.data : null;
+    const result = data.success ? data.data : null;
+    if (result) setCache(url, result);
+    return result;
   } catch (err) { console.error('Fetch error:', err); return null; }
 }
 
+let _statsCache = null;
+let _statsCacheTime = 0;
 async function fetchStats() {
+  if (_statsCache && Date.now() - _statsCacheTime < CACHE_TTL) return _statsCache;
   try {
     const res = await fetch('/api/stats');
     const data = await res.json();
-    return data.success ? data.data : null;
+    _statsCache = data.success ? data.data : null;
+    _statsCacheTime = Date.now();
+    return _statsCache;
   } catch (err) { return null; }
 }
 
@@ -98,6 +128,16 @@ function renderCards(listings, containerId) {
     return;
   }
   container.innerHTML = listings.map(renderPropertyCard).join('');
+}
+
+function renderSkeletonCards(count, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  let html = '';
+  for (let i = 0; i < count; i++) {
+    html += `<div class="skeleton-card"><div class="skeleton sk-img"></div><div class="sk-body"><div class="skeleton sk-line w80"></div><div class="skeleton sk-line w60"></div><div class="skeleton sk-line-sm w100"></div><div class="skeleton sk-line w40"></div></div></div>`;
+  }
+  container.innerHTML = html;
 }
 
 /* ── Search / Filter ─────────────────────────────────────── */
@@ -241,6 +281,9 @@ function setupListingPage(defaultType) {
     renderCards(paged, 'cardsGrid');
     renderPagination(currentPage, totalPages, totalResults);
   }
+
+  // Show skeleton loaders immediately
+  if (cardsGridEl) renderSkeletonCards(6, 'cardsGrid');
 
   // Load all data for this page type
   async function load() {

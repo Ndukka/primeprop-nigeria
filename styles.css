@@ -1986,3 +1986,41 @@ footer {
     pointer-events: none;
     cursor: not-allowed;
 }
+
+/* ==========================================================================
+   Skeleton Loading
+   ========================================================================== */
+@keyframes shimmer {
+    0% { background-position: -400px 0; }
+    100% { background-position: 400px 0; }
+}
+.skeleton {
+    background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+    background-size: 400px 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+    border-radius: var(--radius-sm);
+}
+.skeleton-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+.skeleton-card .sk-img {
+    height: 200px;
+}
+.skeleton-card .sk-body {
+    padding: 18px 20px 20px;
+}
+.skeleton-card .sk-line {
+    height: 14px;
+    margin-bottom: 10px;
+}
+.skeleton-card .sk-line.w60 { width: 60%; }
+.skeleton-card .sk-line.w80 { width: 80%; }
+.skeleton-card .sk-line.w40 { width: 40%; }
+.skeleton-card .sk-line.w100 { width: 100%; }
+.skeleton-card .sk-line-sm {
+    height: 10px;
+    margin-bottom: 8px;
+}

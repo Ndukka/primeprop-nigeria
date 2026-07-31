@@ -143,7 +143,9 @@
                     <a href="properties.html" class="view-all">View All Properties <i class="fa-solid fa-arrow-right"></i></a>
                 </div>
                 <div class="home-cards" id="featuredCards">
-                    <p style="text-align:center;color:var(--text-muted);padding:40px;">Loading featured properties…</p>
+                    <div class="skeleton-card"><div class="skeleton sk-img"></div><div class="sk-body"><div class="skeleton sk-line w80"></div><div class="skeleton sk-line w60"></div><div class="skeleton sk-line w40"></div></div></div>
+                    <div class="skeleton-card"><div class="skeleton sk-img"></div><div class="sk-body"><div class="skeleton sk-line w80"></div><div class="skeleton sk-line w60"></div><div class="skeleton sk-line w40"></div></div></div>
+                    <div class="skeleton-card"><div class="skeleton sk-img"></div><div class="sk-body"><div class="skeleton sk-line w80"></div><div class="skeleton sk-line w60"></div><div class="skeleton sk-line w40"></div></div></div>
                 </div>
             </section>
         </main>
@@ -229,7 +231,8 @@
                     return;
                 }
                 container.innerHTML = featured.map(f => {
-                    const img = (f.images && f.images.length > 0) ? f.images[0] : '';
+                    const rawImg = (f.images && f.images.length > 0) ? f.images[0] : '';
+                    const img = typeof rawImg === 'string' ? rawImg : (rawImg?.url || '');
                     const badgeClass = (f.badge || '').toLowerCase().replace(/\s/g, '-');
                     return `
                     <article class="home-card">
