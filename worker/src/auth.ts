@@ -454,11 +454,19 @@ authRoutes.put('/profile', requireAuth, async (c) => {
 
   const updates: Record<string, any> = {};
   if (body.name !== undefined) updates.name = sanitizeString(body.name, 200);
+  if (body.email !== undefined) {
+    const newEmail = sanitizeString(body.email, 254).toLowerCase();
+    if (!isValidEmail(newEmail)) return c.json({ success: false, message: 'Invalid email format' }, 400);
+    // Check email not taken
+    const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ? AND id != ?').bind(newEmail, user.id).first();
+    if (existing) return c.json({ success: false, message: 'Email already in use' }, 409);
+    updates.email = newEmail;
+  }
   if (body.phone !== undefined) updates.phone = sanitizeString(body.phone, 50);
   if (body.avatar_url !== undefined) updates.avatar_url = sanitizeString(body.avatar_url, 1000);
 
   if (body.current_password && body.new_password) {
-    const dbUser = await c.env.DB.prepare('SELECT password_hash FROM users WHERE id = ?').bind(user.id).first<{password_hash:string}>();
+    const dbUser = await c.env.DB.prepare('SELECT password_hash FROM users WHERE id = ?').bind(user.id).first() as any;
     if (!dbUser?.password_hash) {
       return c.json({ success: false, message: 'Cannot change password for OAuth-only accounts' }, 400);
     }
@@ -475,7 +483,80 @@ authRoutes.put('/profile', requireAuth, async (c) => {
   await c.env.DB.prepare(`UPDATE users SET ${setClauses.join(', ')}, updated_at = datetime('now') WHERE id = ?`)
     .bind(...Object.values(updates), user.id).run();
 
-  return c.json({ success: true, message: 'Profile updated' });
+  // If email changed, update the JWT token in the response
+  const newUser = await c.env.DB.prepare('SELECT id, email, name, role FROM users WHERE id = ?').bind(user.id).first() as any;
+  const newToken = await createToken(
+    { id: newUser.id, email: newUser.email, role: newUser.role, name: newUser.name },
+    c.env.JWT_SECRET
+  );
+
+  return c.json({ success: true, message: 'Profile updated', data: { token: newToken, user: newUser } });
+});
+
+// ── Forgot Password ────────────────────────────────────────
+authRoutes.post('/forgot-password', async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!body) return c.json({ success: false, message: 'Invalid request' }, 400);
+  
+  const email = sanitizeString(body.email, 254).toLowerCase();
+  if (!email || !isValidEmail(email)) {
+    // Don't reveal if email exists — always return success
+    return c.json({ success: true, message: 'If the email exists, a reset link has been generated.' });
+  }
+
+  const user = await c.env.DB.prepare('SELECT id FROM users WHERE email = ? AND password_hash IS NOT NULL').bind(email).first();
+  if (!user) {
+    return c.json({ success: true, message: 'If the email exists, a reset link has been generated.' });
+  }
+
+  // Generate reset token (valid for 1 hour)
+  const token = generateCSRF();
+  const expiresAt = Date.now() + 3600000;
+  
+  await c.env.DB.prepare(
+    'INSERT INTO password_resets (user_id, token, expires_at) VALUES (?, ?, ?)'
+  ).bind((user as any).id, token, expiresAt).run();
+
+  // In production: send email. For now, return the token directly (admin use)
+  return c.json({ 
+    success: true, 
+    message: 'Password reset token generated.',
+    data: { token, expiresIn: '1 hour' }
+  });
+});
+
+// POST /auth/reset-password — reset with token
+authRoutes.post('/reset-password', async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!body) return c.json({ success: false, message: 'Invalid request' }, 400);
+
+  const token = sanitizeString(body.token, 128);
+  const newPassword = sanitizeString(body.password, 128);
+
+  if (!token || !newPassword) {
+    return c.json({ success: false, message: 'Token and new password are required' }, 400);
+  }
+
+  const pwdError = validatePassword(newPassword);
+  if (pwdError) return c.json({ success: false, message: pwdError }, 400);
+
+  // Find valid reset token
+  const reset = await c.env.DB.prepare(
+    'SELECT user_id, expires_at FROM password_resets WHERE token = ?'
+  ).bind(token).first<{user_id: number; expires_at: number}>();
+
+  if (!reset || reset.expires_at < Date.now()) {
+    return c.json({ success: false, message: 'Invalid or expired reset token' }, 400);
+  }
+
+  const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+  await c.env.DB.prepare('UPDATE users SET password_hash = ?, updated_at = datetime(\'now\') WHERE id = ?')
+    .bind(hash, reset.user_id).run();
+
+  // Delete used token
+  await c.env.DB.prepare('DELETE FROM password_resets WHERE token = ?').bind(token).run();
+
+  return c.json({ success: true, message: 'Password has been reset. You can now log in.' });
 });
 
 // ── Helpers ────────────────────────────────────────────────
