@@ -43,18 +43,18 @@ async function verifyToken(token: string, secret: string) {
 
 // ── Cookie Helpers ────────────────────────────────────────
 const COOKIE_OPTS = 'Path=/; HttpOnly; Secure; SameSite=Lax';
-const CSRF_COOKIE_OPTS = 'Path=/; Secure; SameSite=Lax'; // readable by JS
+const CSRF_COOKIE_OPTS = 'Path=/; Secure; SameSite=Lax';
 
 function setAuthCookies(c: any, accessToken: string, refreshToken: string, csrfToken: string) {
-  c.header('Set-Cookie', `pp_session=${accessToken}; ${COOKIE_OPTS}; Max-Age=900`, { append: true });
-  c.header('Set-Cookie', `pp_refresh=${refreshToken}; ${COOKIE_OPTS}; Max-Age=604800`, { append: true });
-  c.header('Set-Cookie', `pp_csrf=${csrfToken}; ${CSRF_COOKIE_OPTS}; Max-Age=604800`, { append: true });
+  c.res.headers.append('Set-Cookie', `pp_session=${accessToken}; ${COOKIE_OPTS}; Max-Age=900`);
+  c.res.headers.append('Set-Cookie', `pp_refresh=${refreshToken}; ${COOKIE_OPTS}; Max-Age=604800`);
+  c.res.headers.append('Set-Cookie', `pp_csrf=${csrfToken}; ${CSRF_COOKIE_OPTS}; Max-Age=604800`);
 }
 
 function clearAuthCookies(c: any) {
-  c.header('Set-Cookie', `pp_session=; ${COOKIE_OPTS}; Max-Age=0`, { append: true });
-  c.header('Set-Cookie', `pp_refresh=; ${COOKIE_OPTS}; Max-Age=0`, { append: true });
-  c.header('Set-Cookie', `pp_csrf=; ${CSRF_COOKIE_OPTS}; Max-Age=0`, { append: true });
+  c.res.headers.append('Set-Cookie', `pp_session=; ${COOKIE_OPTS}; Max-Age=0`);
+  c.res.headers.append('Set-Cookie', `pp_refresh=; ${COOKIE_OPTS}; Max-Age=0`);
+  c.res.headers.append('Set-Cookie', `pp_csrf=; ${CSRF_COOKIE_OPTS}; Max-Age=0`);
 }
 
 function getCookie(c: any, name: string): string | null {
