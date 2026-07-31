@@ -45,13 +45,9 @@ const ALLOWED_ORIGINS = [
   'http://localhost:8787',
 ];
 
+// Cache GET responses 60s
 app.use('*', async (c, next) => {
-  await next();
-  // Cache GET responses for 60 seconds (browser cache)
-  if (c.req.method === 'GET' && c.res.status === 200) {
-    c.res.headers.set('Cache-Control', 'public, max-age=60, s-maxage=60, stale-while-revalidate=300');
-    c.res.headers.set('Vary', 'Accept-Encoding, Origin');
-  }
+  await next(); // (caching handled per-route)
 });
 
 app.use('*', cors({
@@ -164,6 +160,7 @@ app.get('/api/stats', async (c) => {
 // GET /api/listings
 app.get('/api/listings', async (c) => {
   const db = c.env.DB;
+  c.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
   const q = c.req.query();
 
   let sql = 'SELECT * FROM listings WHERE 1=1';
@@ -218,6 +215,7 @@ app.get('/api/listings', async (c) => {
 app.get('/api/listings/:id', async (c) => {
   const id = sanitizeNumber(c.req.param('id'));
   if (id <= 0) return c.json({ success: false, message: 'Invalid ID' }, 400);
+  c.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
   const row = await c.env.DB.prepare('SELECT * FROM listings WHERE id = ?').bind(id).first();
   if (!row) return c.json({ success: false, message: 'Listing not found' }, 404);
   return c.json({ success: true, data: rowToListing(row) });
@@ -341,6 +339,7 @@ app.delete('/api/listings/:id', requireAuth, requireRole('admin'), async (c) => 
 
 // ── Districts CRUD (admin only) ───────────────────────────
 app.get('/api/districts', async (c) => {
+  c.header('Cache-Control', 'public, max-age=300');
   const { results } = await c.env.DB.prepare('SELECT * FROM districts ORDER BY id ASC').all();
   return c.json({ success: true, data: results.map((d: any) => ({ ...d, checks: safeJsonParse(d.checks, []) })) });
 });
@@ -422,6 +421,7 @@ app.post('/api/images/upload', requireAuth, async (c) => {
 });
 
 app.get('/api/images/:key', async (c) => {
+  c.header('Cache-Control', 'public, max-age=31536000, immutable');
   const key = c.req.param('key');
   // Prevent directory traversal
   if (key.includes('..') || key.startsWith('/')) return c.notFound();
