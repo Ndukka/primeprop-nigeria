@@ -712,8 +712,14 @@
           </div>
           <div class="form-row full">
             <div class="form-group">
-              <label>Agent Profile Picture URL (optional)</label>
-              <input type="text" id="formAgentAvatar" placeholder="https://randomuser.me/api/portraits/men/32.jpg">
+              <label>Agent Profile Picture</label>
+              <div class="upload-zone" onclick="document.getElementById('avatarFileInput').click()" style="margin-bottom:4px;">
+                <i class="fa-solid fa-user"></i> Upload profile photo<br>
+                <small style="font-size:.7rem;">JPG, PNG — max 2MB</small>
+              </div>
+              <input type="file" id="avatarFileInput" accept="image/*" style="display:none" onchange="handleAvatarUpload(event)">
+              <div class="upload-preview" id="avatarUploadPreview"></div>
+              <input type="text" id="formAgentAvatar" placeholder="Or paste URL: https://randomuser.me/api/portraits/...">
             </div>
           </div>
 
@@ -808,7 +814,14 @@
               </select>
             </div>
             <div class="form-group">
-              <label>Image URL</label>
+              <label>Image</label>
+              <div class="upload-zone" onclick="document.getElementById('districtFileInput').click()" style="margin-bottom:6px;">
+                <i class="fa-solid fa-cloud-arrow-up"></i> Upload district image<br>
+                <small style="font-size:.7rem;">JPG, PNG, WebP — max 10MB</small>
+              </div>
+              <input type="file" id="districtFileInput" accept="image/*" style="display:none" onchange="handleDistrictUpload(event)">
+              <div class="upload-preview" id="districtUploadPreview"></div>
+              <label style="margin-top:6px;font-size:.75rem;">Or paste URL</label>
               <input type="text" id="districtFormImage" placeholder="https://images.unsplash.com/photo-…">
             </div>
           </div>
@@ -871,6 +884,18 @@
             <div class="form-group">
               <label>Phone</label>
               <input type="text" id="userFormPhone">
+            </div>
+          </div>
+          <div class="form-row full">
+            <div class="form-group">
+              <label>Profile Picture</label>
+              <div class="upload-zone" onclick="document.getElementById('userAvatarFileInput').click()" style="margin-bottom:4px;">
+                <i class="fa-solid fa-user"></i> Upload profile photo<br>
+                <small style="font-size:.7rem;">JPG, PNG — max 2MB</small>
+              </div>
+              <input type="file" id="userAvatarFileInput" accept="image/*" style="display:none" onchange="handleUserAvatarUpload(event)">
+              <div class="upload-preview" id="userAvatarUploadPreview"></div>
+              <input type="text" id="userFormAvatar" placeholder="Or paste URL">
             </div>
           </div>
           <div class="form-row full">
@@ -975,6 +1000,7 @@
     let districtEditId = null;
     let activeTab = 'listings';
     let adminUploadedUrls = [];
+    let districtUploadedUrls = [];
 
     const API = '/api/listings';
     const DISTRICTS_API = '/api/districts';
@@ -1185,6 +1211,14 @@
       document.getElementById('formAgentPhone').value = listing.agent?.phone || '';
       document.getElementById('formAgentRole').value = listing.agent?.role || '';
       document.getElementById('formAgentAvatar').value = listing.agent?.avatar || '';
+      // Avatar preview
+      var avatarPreview = document.getElementById('avatarUploadPreview');
+      if (avatarPreview) {
+        avatarPreview.innerHTML = '';
+        if (listing.agent?.avatar) {
+          avatarPreview.innerHTML = '<div class="upload-preview-item"><img src="'+listing.agent.avatar+'" alt=""><button class="remove-btn" onclick="this.parentElement.remove();document.getElementById(\'formAgentAvatar\').value=\'\'">&times;</button></div>';
+        }
+      }
       document.getElementById('formAvailability').value = listing.availability || 'Immediately';
       document.getElementById('formBadge').value = listing.badge || '';
       document.getElementById('formFeatured').checked = listing.featured || false;
@@ -1251,6 +1285,9 @@
       adminUploadedUrls = [];
       var preview = document.getElementById('adminUploadPreview');
       if (preview) preview.innerHTML = '';
+      document.getElementById('districtUploadPreview').innerHTML = '';
+      document.getElementById('avatarUploadPreview').innerHTML = '';
+      document.getElementById('adminUploadPreview').innerHTML = '';
     }
 
     function onTypeChange() {
@@ -1442,6 +1479,88 @@
       e.target.value = '';
     }
 
+    // ── District Image Upload ───────────────────────────
+    async function handleDistrictUpload(e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      showLoading(true);
+      var fd = new FormData();
+      fd.append('files', file);
+      try {
+        var res = await apiFetch('/api/images/upload', { method: 'POST', body: fd });
+        var data = await res.json();
+        if (data.success) {
+          var r = data.data[0];
+          if (!r.error) {
+            districtUploadedUrls.push(r.url);
+            document.getElementById('districtFormImage').value = r.url;
+            var preview = document.getElementById('districtUploadPreview');
+            var div = document.createElement('div'); div.className = 'upload-preview-item';
+            div.innerHTML = '<img src="'+r.url+'" alt=""><button class="remove-btn" onclick="this.parentElement.remove();document.getElementById(\'districtFormImage\').value=\'\';districtUploadedUrls=[]">&times;</button>';
+            preview.innerHTML = '';
+            preview.appendChild(div);
+            showToast('District image uploaded!', 'success');
+          } else {
+            showToast('Upload failed', 'error');
+          }
+        } else showToast(data.message || 'Upload failed', 'error');
+      } catch(ex) { showToast('Upload error', 'error'); }
+      showLoading(false);
+      e.target.value = '';
+    }
+
+    // ── Agent Avatar Upload ───────────────────────────────
+    async function handleAvatarUpload(e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      showLoading(true);
+      var fd = new FormData();
+      fd.append('files', file);
+      try {
+        var res = await apiFetch('/api/images/upload', { method: 'POST', body: fd });
+        var data = await res.json();
+        if (data.success) {
+          var r = data.data[0];
+          if (!r.error) {
+            document.getElementById('formAgentAvatar').value = r.url;
+            var preview = document.getElementById('avatarUploadPreview');
+            preview.innerHTML = '<div class="upload-preview-item"><img src="'+r.url+'" alt=""><button class="remove-btn" onclick="this.parentElement.remove();document.getElementById(\'formAgentAvatar\').value=\'\'">&times;</button></div>';
+            showToast('Avatar uploaded!', 'success');
+          } else {
+            showToast('Upload failed', 'error');
+          }
+        } else showToast(data.message || 'Upload failed', 'error');
+      } catch(ex) { showToast('Upload error', 'error'); }
+      showLoading(false);
+      e.target.value = '';
+    }
+
+    // ── User Avatar Upload ────────────────────────────────
+    async function handleUserAvatarUpload(e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      showLoading(true);
+      var fd = new FormData();
+      fd.append('files', file);
+      try {
+        var res = await apiFetch('/api/images/upload', { method: 'POST', body: fd });
+        var data = await res.json();
+        if (data.success) {
+          var r = data.data[0];
+          if (!r.error) {
+            document.getElementById('userFormAvatar').value = r.url;
+            var preview = document.getElementById('userAvatarUploadPreview');
+            preview.innerHTML = '<div class="upload-preview-item"><img src="'+r.url+'" alt=""><button class="remove-btn" onclick="this.parentElement.remove();document.getElementById(\'userFormAvatar\').value=\'\'">&times;</button></div>';
+            showToast('Avatar uploaded!', 'success');
+          } else {
+            showToast('Upload failed', 'error');
+          }
+        } else showToast(data.message || 'Upload failed', 'error');
+      } catch(ex) { showToast('Upload error', 'error'); }
+      showLoading(false);
+      e.target.value = '';
+    }
+
     // ── District Modal ─────────────────────────────────────
     function openDistrictModal(id) {
       districtEditId = id || null;
@@ -1458,6 +1577,15 @@
         document.getElementById('districtFormLinkType').value = district.linkType || 'all';
         document.getElementById('districtFormImage').value = district.image || '';
         document.getElementById('districtFormDescription').value = district.description || '';
+        // District image preview
+        districtUploadedUrls = district.image ? [district.image] : [];
+        var distPreview = document.getElementById('districtUploadPreview');
+        if (distPreview) {
+          distPreview.innerHTML = '';
+          if (district.image) {
+            distPreview.innerHTML = '<div class="upload-preview-item"><img src="'+district.image+'" alt=""><button class="remove-btn" onclick="this.parentElement.remove();document.getElementById(\'districtFormImage\').value=\'\';districtUploadedUrls=[]">&times;</button></div>';
+          }
+        }
         currentDistrictChecks = [...(district.checks || [])];
         renderDistrictChecks();
       } else {
@@ -1481,6 +1609,8 @@
       document.getElementById('districtFormCity').value = 'Lagos';
       document.getElementById('districtFormLinkType').value = 'all';
       currentDistrictChecks = [];
+      districtUploadedUrls = [];
+      document.getElementById('districtUploadPreview').innerHTML = '';
       renderDistrictChecks();
     }
 
@@ -1725,6 +1855,15 @@
             document.getElementById('userFormEmail').value = u.email || '';
             document.getElementById('userFormRole').value = u.role || 'user';
             document.getElementById('userFormPhone').value = u.phone || '';
+            document.getElementById('userFormAvatar').value = u.avatar || '';
+            // User avatar preview
+            var uaPreview = document.getElementById('userAvatarUploadPreview');
+            if (uaPreview) {
+              uaPreview.innerHTML = '';
+              if (u.avatar) {
+                uaPreview.innerHTML = '<div class="upload-preview-item"><img src="'+u.avatar+'" alt=""><button class="remove-btn" onclick="this.parentElement.remove();document.getElementById(\'userFormAvatar\').value=\'\'">&times;</button></div>';
+              }
+            }
             document.getElementById('userFormPassword').value = '';
           }
         }).catch(() => {});
@@ -1746,6 +1885,8 @@
       document.getElementById('userFormId').value = '';
       document.getElementById('userFormRole').value = 'user';
       document.getElementById('userFormPassword').value = '';
+      document.getElementById('userFormAvatar').value = '';
+      document.getElementById('userAvatarUploadPreview').innerHTML = '';
     }
 
     async function saveUser() {
@@ -1760,7 +1901,8 @@
         return;
       }
 
-      const userData = { name, email, role, phone };
+      const avatar = document.getElementById('userFormAvatar').value.trim();
+      const userData = { name, email, role, phone, avatar_url: avatar };
       if (password) userData.password = password;
 
       const isEdit = userEditId !== null;

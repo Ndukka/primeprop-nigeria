@@ -71,9 +71,9 @@ const RATE_WINDOW = 60_000; // 1 minute
 const RATE_LIMITS: Record<string, number> = {
   'auth:login': 30,
   'auth:register': 10,
-  'api:write': 120,
-  'api:read': 600,
-  'default': 200,
+  'api:write': 200,
+  'api:read': 1000,
+  'default': 300,
 };
 
 app.use('*', async (c, next) => {
