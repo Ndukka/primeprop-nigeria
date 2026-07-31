@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { authRoutes, requireAuth, requireRole, csrfMiddleware } from './auth';
+import { authRoutes, requireAuth, requireRole } from './auth';
 import type { D1Database, R2Bucket } from '@cloudflare/workers-types';
 
 type Bindings = {

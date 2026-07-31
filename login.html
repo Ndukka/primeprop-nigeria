@@ -80,7 +80,7 @@
   </style>
 </head>
 <body>
-  <div class="login-card">
+  <div class="login-card" id="loginCard">
     <div class="login-logo">
       <i class="fa-solid fa-building"></i>
       <span>PrimeProp</span>
@@ -112,10 +112,66 @@
     </a>
 
     <a href="/" class="back-link"><i class="fa-solid fa-arrow-left"></i> Back to website</a>
+    <p style="text-align:center;color:#64748b;margin-top:16px;font-size:0.85rem;">
+      Don't have an account? <a href="#" onclick="showSignup();return false;" style="color:#60a5fa;">Sign up as an agent</a>
+    </p>
+  </div>
+
+  <!-- Signup Form (hidden initially) -->
+  <div class="login-card" id="signupCard" style="display:none;">
+    <div class="login-logo">
+      <i class="fa-solid fa-building"></i>
+      <span>PrimeProp</span>
+      <small>Nigeria</small>
+    </div>
+    <h1>Create Agent Account</h1>
+    <p class="subtitle">Sign up to list and manage properties</p>
+    <div class="error-msg" id="signupError"></div>
+    <form id="signupForm" onsubmit="handleSignup(event)">
+      <div class="form-group"><label>Full Name</label><input type="text" id="signupName" required placeholder="Your full name"></div>
+      <div class="form-group"><label>Email</label><input type="email" id="signupEmail" required placeholder="you@example.com"></div>
+      <div class="form-group"><label>Password</label><input type="password" id="signupPassword" required placeholder="Min 8 chars, upper+lower+number" minlength="8"></div>
+      <button type="submit" class="btn btn-primary" id="signupBtn"><i class="fa-solid fa-user-plus"></i> Create Account</button>
+    </form>
+    <p style="text-align:center;color:#64748b;margin-top:16px;font-size:0.85rem;">
+      Already have an account? <a href="#" onclick="showLogin();return false;" style="color:#60a5fa;">Sign in</a>
+    </p>
   </div>
 
   <script>
-    // If already logged in, redirect to admin
+    function showSignup() { document.getElementById('loginCard').style.display = 'none'; document.getElementById('signupCard').style.display = 'block'; }
+    function showLogin() { document.getElementById('signupCard').style.display = 'none'; document.getElementById('loginCard').style.display = 'block'; }
+    
+    async function handleSignup(e) {
+      e.preventDefault();
+      var btn = document.getElementById('signupBtn');
+      var err = document.getElementById('signupError');
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creating account…';
+      btn.disabled = true;
+      err.style.display = 'none';
+      try {
+        var res = await fetch('/auth/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: document.getElementById('signupName').value.trim(),
+            email: document.getElementById('signupEmail').value.trim(),
+            password: document.getElementById('signupPassword').value
+          })
+        });
+        var data = await res.json();
+        if (data.success) {
+          alert('Account created! You can now sign in.');
+          showLogin();
+        } else {
+          err.textContent = data.message || 'Registration failed';
+          err.style.display = 'block';
+        }
+      } catch(ex) { err.textContent = 'Network error. Please try again.'; err.style.display = 'block'; }
+      finally { btn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Create Account'; btn.disabled = false; }
+    }
+
+    // Check for existing session
     const existing = localStorage.getItem('pp_token');
     if (existing) {
       fetch('/auth/session', { headers: { 'Authorization': 'Bearer ' + existing } })

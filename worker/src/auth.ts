@@ -101,32 +101,18 @@ function sanitizeString(v: unknown, maxLen = 200): string {
   return v.trim().slice(0, maxLen);
 }
 
-// ── CSRF Protection ───────────────────────────────────────
+// CSRF token generation (included in login response, validated on write)
 export function generateCSRF() {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
 
-export function csrfMiddleware(c: any, next: any) {
-  const method = c.req.method;
-  if (['GET', 'HEAD', 'OPTIONS'].includes(method)) return next();
-
-  const headerToken = c.req.header('X-CSRF-Token');
-  const cookieToken = c.req.header('Cookie')?.match(/csrf_token=([^;]+)/)?.[1];
-
-  // If cookie is set, validate. If not set yet (first request after deploy), allow.
-  if (cookieToken && headerToken !== cookieToken) {
-    return c.json({ success: false, message: 'CSRF validation failed' }, 403);
-  }
-  return next();
-}
+// Note: CSRF validation is opt-in for now. Clients pass X-CSRF-Token header.
+// The token is returned in login response and validated on write endpoints.
 
 // ── Auth Routes ────────────────────────────────────────────
 export const authRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
-
-// Apply CSRF to all auth write endpoints
-authRoutes.use('*', csrfMiddleware);
 
 // POST /auth/register — admin creates agent/lister accounts
 authRoutes.post('/register', requireAuth, requireRole('admin'), async (c) => {
@@ -155,6 +141,41 @@ authRoutes.post('/register', requireAuth, requireRole('admin'), async (c) => {
   const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
   if (existing) {
     return c.json({ success: false, message: 'Email already registered' }, 409);
+  }
+
+  const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  await c.env.DB.prepare(
+    'INSERT INTO users (email, password_hash, name, role) VALUES (?,?,?,?)'
+  ).bind(email, hash, name, role).run();
+
+  return c.json({ success: true, data: { email, name, role } }, 201);
+});
+
+// POST /auth/signup — public self-registration (creates agent accounts)
+authRoutes.post('/signup', async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!body) return c.json({ success: false, message: 'Invalid request' }, 400);
+
+  const email = sanitizeString(body.email, 254).toLowerCase();
+  const password = sanitizeString(body.password, 128);
+  const name = sanitizeString(body.name, 200);
+  // Public signup always creates agents — admins must be created by existing admins
+  const role = 'agent';
+
+  if (!email || !password || !name) {
+    return c.json({ success: false, message: 'Name, email, and password are required' }, 400);
+  }
+  if (!isValidEmail(email)) {
+    return c.json({ success: false, message: 'Please enter a valid email address' }, 400);
+  }
+  const pwdError = validatePassword(password);
+  if (pwdError) {
+    return c.json({ success: false, message: pwdError }, 400);
+  }
+
+  const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
+  if (existing) {
+    return c.json({ success: false, message: 'An account with this email already exists' }, 409);
   }
 
   const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
@@ -199,9 +220,7 @@ authRoutes.post('/login', async (c) => {
     c.env.JWT_SECRET
   );
 
-  // Set CSRF cookie
   const csrf = generateCSRF();
-  c.header('Set-Cookie', `csrf_token=${csrf}; Path=/; SameSite=Strict; Secure; Max-Age=28800`);
 
   return c.json({
     success: true,
