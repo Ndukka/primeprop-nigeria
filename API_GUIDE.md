@@ -6,17 +6,21 @@
 | Field | Value |
 |-------|-------|
 | **Email** | `admin@primeprop.ng` |
-| **Password** | `admin123` |
+| **Password** | `Admin456!` |
 | **Role** | `admin` |
-| **Capabilities** | Full CRUD on listings & districts, manage users (ban/delete/role-change) |
 
-### Agent Account (example)
-| Field | Value |
-|-------|-------|
-| **Email** | `agent@primeprop.ng` |
-| **Password** | `Agent123A!` |
-| **Role** | `agent` |
-| **Capabilities** | Create listings, edit own listings, upload files. Cannot delete or manage users. |
+### Authentication (v2 — Cookie-Based)
+Login now sets **httpOnly cookies** (XSS-proof). The browser automatically sends them. No token management needed.
+
+**Cookies set on login:**
+| Cookie | Purpose | Expiry |
+|--------|---------|--------|
+| `pp_session` | JWT access token (httpOnly) | 15 min |
+| `pp_refresh` | JWT refresh token (httpOnly) | 7 days |
+| `pp_csrf` | CSRF token (JS-readable) | 7 days |
+
+**Frontend usage:** All `fetch()` calls must include `credentials: 'include'`.
+**API clients (curl):** Use `-b cookies.txt -c cookies.txt` to store/send cookies, OR use `Authorization: Bearer <token>` header.
 
 ### Cloudflare Account
 | Field | Value |
@@ -72,18 +76,28 @@ https://primeprop-worker.ndupsn.workers.dev
 ```
 
 ### Authentication
-All write endpoints require a JWT token in the `Authorization` header:
-```
-Authorization: Bearer <token>
+All write endpoints require authentication. **Cookies are the primary method** (browsers auto-send them). API clients can also use Bearer tokens.
+
+**Curl with cookies (recommended):**
+```bash
+# Login and store cookies
+curl -c cookies.txt -X POST https://primeprop-worker.ndupsn.workers.dev/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@primeprop.ng","password":"Admin456!"}'
+
+# Use cookies for subsequent requests
+curl -b cookies.txt https://primeprop-worker.ndupsn.workers.dev/auth/session
+curl -b cookies.txt https://primeprop-worker.ndupsn.workers.dev/api/listings
+curl -b cookies.txt -X POST ... # write operations
 ```
 
-Get a token by logging in (see Auth section below).
-
-CSRF-protected endpoints also require:
+**Curl with Bearer token (API clients):**
+```bash
+TOKEN=$(curl -s -X POST https://.../auth/login -H "Content-Type: application/json" \
+  -d '{"email":"admin@primeprop.ng","password":"Admin456!"}' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['token'])")
+curl -H "Authorization: Bearer $TOKEN" https://.../api/listings
 ```
-X-CSRF-Token: <csrf_token>
-```
-(The CSRF token is returned in the login response.)
 
 ---
 
@@ -507,27 +521,34 @@ curl -X PUT https://primeprop-worker.ndupsn.workers.dev/auth/profile \
 | PDFs | application/pdf | 10 MB |
 | Videos | MP4, WebM, MOV | 50 MB |
 
-**Example (curl):**
+**Example (curl with cookies):**
 ```bash
-curl -X POST https://primeprop-worker.ndupsn.workers.dev/api/images/upload \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "file=@/path/to/image.jpg"
+# Upload multiple files
+curl -b cookies.txt -X POST https://primeprop-worker.ndupsn.workers.dev/api/images/upload \
+  -F "files=@photo.jpg" \
+  -F "files=@video.mp4" \
+  -F "files=@brochure.pdf"
 ```
+
+**Supported formats:**
+| Type | MIME Types | Max Size |
+|------|-----------|----------|
+| Images | JPEG, PNG, WebP, GIF, AVIF | 10 MB |
+| PDFs | application/pdf | 10 MB |
+| Videos | MP4, WebM, MOV | 50 MB |
 
 **Response:**
 ```json
 {
   "success": true,
-  "data": {
-    "key": "listings/images/1234567890-image.jpg",
-    "url": "/api/images/listings/images/1234567890-image.jpg",
-    "type": "image/jpeg",
-    "size": 245000
-  }
+  "data": [
+    { "key": "listings/images/123-photo.jpg", "url": "/api/images/...", "type": "image/jpeg", "size": 245000, "name": "photo.jpg" },
+    { "key": "listings/videos/456-video.mp4", "url": "/api/images/...", "type": "video/mp4", "size": 5000000, "name": "video.mp4" }
+  ]
 }
 ```
 
-Use the returned `url` in the `images` array when creating/updating a listing.
+Use the returned `url` values in the `images` array when creating/updating a listing.
 
 ---
 
