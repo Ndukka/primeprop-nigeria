@@ -469,9 +469,13 @@
       <span style="color: #94a3b8; font-weight: 400; font-size: 0.85rem;">| Admin</span>
     </div>
     <div class="header-actions">
+      <span id="headerUser" style="color:#94a3b8;font-size:0.85rem;margin-right:12px;"></span>
       <a href="index.html" class="btn btn-sm" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);">
         <i class="fa-solid fa-arrow-right"></i> View Site
       </a>
+      <button class="btn btn-sm" style="background:rgba(255,255,255,0.1);color:#fca5a5;border:1px solid rgba(255,100,100,0.3);" onclick="doLogout()">
+        <i class="fa-solid fa-right-from-bracket"></i> Logout
+      </button>
       <button class="btn btn-success" id="addButton" onclick="openAddModal()">
         <i class="fa-solid fa-plus"></i> Add Listing
       </button>
@@ -839,6 +843,58 @@
   </div>
 
   <script>
+    // ── Auth ────────────────────────────────────────────────
+    const AUTH_TOKEN = localStorage.getItem('pp_token');
+    const AUTH_USER = JSON.parse(localStorage.getItem('pp_user') || 'null');
+    const AUTH_CSRF = localStorage.getItem('pp_csrf') || '';
+
+    // Redirect to login if not authenticated
+    if (!AUTH_TOKEN || !AUTH_USER) {
+      window.location.href = '/login.html';
+      throw new Error('Not authenticated'); // Stop script execution
+    }
+
+    // Show user info in header
+    const headerUser = document.getElementById('headerUser');
+    if (headerUser) {
+      headerUser.innerHTML = `<i class="fa-solid fa-user"></i> ${AUTH_USER.name} <span style="color:#64748b;">(${AUTH_USER.role})</span>`;
+    }
+
+    // Hide admin-only elements for agents
+    function isAdmin() { return AUTH_USER.role === 'admin'; }
+
+    // Authenticated fetch wrapper
+    async function apiFetch(url, options = {}) {
+      const headers = { ...(options.headers || {}), 'Authorization': 'Bearer ' + AUTH_TOKEN };
+      if (AUTH_CSRF && options.method && !['GET','HEAD'].includes(options.method)) {
+        headers['X-CSRF-Token'] = AUTH_CSRF;
+      }
+      return fetch(url, { ...options, headers });
+    }
+
+    function doLogout() {
+      localStorage.removeItem('pp_token');
+      localStorage.removeItem('pp_user');
+      localStorage.removeItem('pp_csrf');
+      window.location.href = '/login.html';
+    }
+
+    // Refresh session on load
+    apiFetch('/auth/session').then(r => r.json()).then(d => {
+      if (d.success) {
+        localStorage.setItem('pp_token', d.data.token);
+        localStorage.setItem('pp_user', JSON.stringify(d.data.user));
+      } else {
+        doLogout();
+      }
+    });
+
+    // Hide districts tab for non-admins
+    if (!isAdmin()) {
+      const tabDistricts = document.getElementById('tabDistricts');
+      if (tabDistricts) tabDistricts.style.display = 'none';
+    }
+
     // ── State ──────────────────────────────────────────────
     let allListings = [];
     let allDistricts = [];
@@ -899,8 +955,8 @@
     async function loadData() {
       try {
         const [listRes, statsRes] = await Promise.all([
-          fetch(API),
-          fetch('/api/stats')
+          apiFetch(API),
+          apiFetch('/api/stats')
         ]);
         const listData = await listRes.json();
         const statsData = await statsRes.json();
@@ -926,7 +982,7 @@
     // ── Load Districts ─────────────────────────────────────
     async function loadDistrictsData() {
       try {
-        const res = await fetch(DISTRICTS_API);
+        const res = await apiFetch(DISTRICTS_API);
         const data = await res.json();
         allDistricts = data.data || [];
         renderDistrictsTable();
@@ -1234,7 +1290,7 @@
 
       try {
         showLoading(true);
-        const res = await fetch(url, {
+        const res = await apiFetch(url, {
           method,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(listingData)
@@ -1349,7 +1405,7 @@
 
       try {
         showLoading(true);
-        const res = await fetch(url, {
+        const res = await apiFetch(url, {
           method,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(districtData)
@@ -1400,7 +1456,7 @@
       if (deleteTargetType === 'district') {
         try {
           showLoading(true);
-          const res = await fetch(`${DISTRICTS_API}/${deleteTargetId}`, { method: 'DELETE' });
+          const res = await apiFetch(`${DISTRICTS_API}/${deleteTargetId}`, { method: 'DELETE' });
           const data = await res.json();
           if (data.success) {
             showToast(data.message || 'District deleted.', 'success');
@@ -1417,7 +1473,7 @@
       } else {
         try {
           showLoading(true);
-          const res = await fetch(`${API}/${deleteTargetId}`, { method: 'DELETE' });
+          const res = await apiFetch(`${API}/${deleteTargetId}`, { method: 'DELETE' });
           const data = await res.json();
           if (data.success) {
             showToast(data.message, 'success');

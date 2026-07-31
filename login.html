@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — PrimeProp Nigeria</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #0f172a;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .login-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 20px;
+      padding: 48px 40px;
+      width: 100%;
+      max-width: 440px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.4);
+    }
+    .login-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      justify-content: center;
+      margin-bottom: 8px;
+    }
+    .login-logo i { font-size: 1.6rem; color: #fff; }
+    .login-logo span { color: #fff; font-size: 1.2rem; font-weight: 700; }
+    .login-logo small { color: #94a3b8; font-weight: 400; font-size: 0.8rem; }
+    h1 { color: #fff; font-size: 1.4rem; text-align: center; margin-bottom: 4px; }
+    .subtitle { color: #94a3b8; text-align: center; font-size: 0.88rem; margin-bottom: 32px; }
+    .form-group { margin-bottom: 18px; }
+    .form-group label { display: block; color: #cbd5e1; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .form-group input {
+      width: 100%;
+      padding: 12px 16px;
+      background: #0f172a;
+      border: 1.5px solid #334155;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 1rem;
+      font-family: 'Inter', sans-serif;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-group input:focus { border-color: #2563eb; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+      border: none;
+      font-family: 'Inter', sans-serif;
+      transition: all 0.2s;
+      width: 100%;
+    }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-google { background: #fff; color: #1e293b; border: 1.5px solid #e2e8f0; }
+    .btn-google:hover { background: #f8fafc; }
+    .divider { display: flex; align-items: center; gap: 12px; margin: 24px 0; color: #475569; font-size: 0.82rem; }
+    .divider::before, .divider::after { content: ''; flex:1; height:1px; background:#334155; }
+    .error-msg { background: rgba(220,38,38,0.15); color: #fca5a5; padding: 10px 14px; border-radius: 8px; font-size: 0.85rem; margin-bottom: 16px; display: none; }
+    .back-link { color: #94a3b8; text-align: center; display: block; margin-top: 20px; font-size: 0.85rem; text-decoration: none; }
+    .back-link:hover { color: #fff; }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="login-logo">
+      <i class="fa-solid fa-building"></i>
+      <span>PrimeProp</span>
+      <small>Nigeria</small>
+    </div>
+    <h1>Admin & Agent Login</h1>
+    <p class="subtitle">Sign in to manage listings and properties</p>
+
+    <div class="error-msg" id="errorMsg"></div>
+
+    <form id="loginForm" onsubmit="handleLogin(event)">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="email" placeholder="admin@primeprop.ng" required autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="password" placeholder="••••••••" required autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn btn-primary" id="loginBtn">
+        <i class="fa-solid fa-lock"></i> Sign In
+      </button>
+    </form>
+
+    <div class="divider">or continue with</div>
+
+    <a href="/auth/google" class="btn btn-google">
+      <i class="fa-brands fa-google"></i> Sign in with Google
+    </a>
+
+    <a href="/" class="back-link"><i class="fa-solid fa-arrow-left"></i> Back to website</a>
+  </div>
+
+  <script>
+    // If already logged in, redirect to admin
+    const existing = localStorage.getItem('pp_token');
+    if (existing) {
+      fetch('/auth/session', { headers: { 'Authorization': 'Bearer ' + existing } })
+        .then(r => r.json())
+        .then(d => {
+          if (d.success) {
+            const role = d.data.user.role;
+            window.location.href = role === 'admin' ? '/admin.html' : '/agent.html';
+          } else {
+            localStorage.removeItem('pp_token');
+            localStorage.removeItem('pp_user');
+          }
+        })
+        .catch(() => {});
+    }
+
+    // Handle URL token from Google OAuth callback
+    const urlParams = new URLSearchParams(window.location.search);
+    const oauthToken = urlParams.get('token');
+    if (oauthToken) {
+      localStorage.setItem('pp_token', oauthToken);
+      fetch('/auth/session', { headers: { 'Authorization': 'Bearer ' + oauthToken } })
+        .then(r => r.json())
+        .then(d => {
+          if (d.success) {
+            localStorage.setItem('pp_user', JSON.stringify(d.data.user));
+            window.location.href = d.data.user.role === 'admin' ? '/admin.html' : '/agent.html';
+          }
+        });
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const btn = document.getElementById('loginBtn');
+      const errorEl = document.getElementById('errorMsg');
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Signing in…';
+      btn.disabled = true;
+      errorEl.style.display = 'none';
+
+      try {
+        const res = await fetch('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: document.getElementById('email').value.trim(),
+            password: document.getElementById('password').value
+          })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          localStorage.setItem('pp_token', data.data.token);
+          if (data.data.csrf) localStorage.setItem('pp_csrf', data.data.csrf);
+          localStorage.setItem('pp_user', JSON.stringify(data.data.user));
+          const role = data.data.user.role;
+          window.location.href = role === 'admin' ? '/admin.html' : '/agent.html';
+        } else {
+          errorEl.textContent = data.message || 'Login failed';
+          errorEl.style.display = 'block';
+        }
+      } catch (err) {
+        errorEl.textContent = 'Network error. Please try again.';
+        errorEl.style.display = 'block';
+      } finally {
+        btn.innerHTML = '<i class="fa-solid fa-lock"></i> Sign In';
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
