@@ -18,13 +18,15 @@ type Variables = {
 
 // ── JWT Helpers ───────────────────────────────────────────
 const encoder = new TextEncoder();
-const BCRYPT_ROUNDS = 12; // OWASP recommends 12+
+const BCRYPT_ROUNDS = 12;
+const ACCESS_EXPIRY = '15min';
+const REFRESH_EXPIRY = '7d';
 
-async function createToken(payload: { id: number; email: string; role: string; name: string }, secret: string) {
+async function createToken(payload: Record<string, any>, secret: string, expiry: string = ACCESS_EXPIRY) {
   return new SignJWT({ ...payload })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime('8h') // Shorter expiry
+    .setExpirationTime(expiry)
     .setIssuer('primeprop')
     .sign(encoder.encode(secret));
 }
@@ -36,35 +38,85 @@ async function verifyToken(token: string, secret: string) {
       clockTolerance: 30,
     });
     return payload as unknown as { id: number; email: string; role: string; name: string };
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-// ── Auth Middleware ────────────────────────────────────────
-export async function requireAuth(c: any, next: any) {
-  const authHeader = c.req.header('Authorization') || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+// ── Cookie Helpers ────────────────────────────────────────
+const COOKIE_OPTS = 'Path=/; HttpOnly; Secure; SameSite=Lax';
+const CSRF_COOKIE_OPTS = 'Path=/; Secure; SameSite=Lax'; // readable by JS
 
+function setAuthCookies(c: any, accessToken: string, refreshToken: string, csrfToken: string) {
+  c.header('Set-Cookie', `pp_session=${accessToken}; ${COOKIE_OPTS}; Max-Age=900`, { append: true });
+  c.header('Set-Cookie', `pp_refresh=${refreshToken}; ${COOKIE_OPTS}; Max-Age=604800`, { append: true });
+  c.header('Set-Cookie', `pp_csrf=${csrfToken}; ${CSRF_COOKIE_OPTS}; Max-Age=604800`, { append: true });
+}
+
+function clearAuthCookies(c: any) {
+  c.header('Set-Cookie', `pp_session=; ${COOKIE_OPTS}; Max-Age=0`, { append: true });
+  c.header('Set-Cookie', `pp_refresh=; ${COOKIE_OPTS}; Max-Age=0`, { append: true });
+  c.header('Set-Cookie', `pp_csrf=; ${CSRF_COOKIE_OPTS}; Max-Age=0`, { append: true });
+}
+
+function getCookie(c: any, name: string): string | null {
+  const cookie = c.req.header('Cookie') || '';
+  const match = cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+// Try to authenticate from cookie OR Authorization header
+async function authenticateRequest(c: any): Promise<{ id: number; email: string; role: string; name: string } | null> {
+  // 1. Try cookie
+  let token = getCookie(c, 'pp_session');
+  
+  // 2. If no cookie or expired, try refresh cookie
   if (!token) {
-    return c.json({ success: false, message: 'Authentication required' }, 401);
+    token = getCookie(c, 'pp_refresh');
+    if (token) {
+      const payload = await verifyToken(token, c.env.JWT_SECRET);
+      if (payload) {
+        // Issue new access token (silent refresh)
+        const newAccess = await createToken(
+          { id: payload.id, email: payload.email, role: payload.role, name: payload.name },
+          c.env.JWT_SECRET, ACCESS_EXPIRY
+        );
+        const newRefresh = await createToken(
+          { id: payload.id, email: payload.email, role: payload.role, name: payload.name },
+          c.env.JWT_SECRET, REFRESH_EXPIRY
+        );
+        const csrf = generateCSRF();
+        setAuthCookies(c, newAccess, newRefresh, csrf);
+        // Verify user still valid
+        const dbUser = await c.env.DB.prepare('SELECT id, account_status FROM users WHERE id = ?').bind(payload.id).first() as any;
+        if (!dbUser || dbUser.account_status === 'banned') return null;
+        return { id: payload.id, email: payload.email, role: payload.role, name: payload.name };
+      }
+    }
   }
 
-  const payload = await verifyToken(token, c.env.JWT_SECRET);
-  if (!payload) {
-    return c.json({ success: false, message: 'Invalid or expired token. Please log in again.' }, 401);
+  // 3. Try Authorization header (API clients: curl, mobile apps)
+  if (!token) {
+    const authHeader = c.req.header('Authorization') || '';
+    token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
   }
+
+  if (!token) return null;
+  const payload = await verifyToken(token, c.env.JWT_SECRET);
+  if (!payload) return null;
 
   // Verify user still exists and isn't banned
-  const dbUser: any = await c.env.DB.prepare('SELECT id, role, account_status FROM users WHERE id = ?').bind(payload.id).first();
-  if (!dbUser) {
-    return c.json({ success: false, message: 'Account not found' }, 401);
-  }
-  if (dbUser.account_status === 'banned') {
-    return c.json({ success: false, message: 'Account has been suspended. Contact support.' }, 403);
-  }
+  const dbUser = await c.env.DB.prepare('SELECT id, role, account_status FROM users WHERE id = ?').bind(payload.id).first() as any;
+  if (!dbUser || dbUser.account_status === 'banned') return null;
 
-  c.set('user', { ...payload, role: dbUser.role }); // Use fresh role from DB
+  return { id: payload.id, email: payload.email, role: dbUser.role, name: payload.name };
+}
+
+// ── Middleware ─────────────────────────────────────────────
+export async function requireAuth(c: any, next: any) {
+  const user = await authenticateRequest(c);
+  if (!user) {
+    return c.json({ success: false, message: 'Authentication required. Please log in.' }, 401);
+  }
+  c.set('user', user);
   await next();
 }
 
@@ -216,51 +268,50 @@ authRoutes.post('/login', async (c) => {
     return c.json({ success: false, message: 'Account suspended. Contact support.' }, 403);
   }
 
-  const token = await createToken(
+  const accessToken = await createToken(
     { id: user.id, email: user.email, role: user.role, name: user.name },
-    c.env.JWT_SECRET
+    c.env.JWT_SECRET, ACCESS_EXPIRY
   );
+  const refreshToken = await createToken(
+    { id: user.id, email: user.email, role: user.role, name: user.name },
+    c.env.JWT_SECRET, REFRESH_EXPIRY
+  );
+  const csrf = generateCSRF();
+
+  // Set httpOnly cookies (primary auth method) + return JSON (API client fallback)
+  setAuthCookies(c, accessToken, refreshToken, csrf);
 
   // Track login
   await c.env.DB.prepare(
     'UPDATE users SET last_login_at = datetime(\'now\'), login_count = login_count + 1 WHERE id = ?'
   ).bind(user.id).run();
 
-  const csrf = generateCSRF();
-
   return c.json({
     success: true,
     data: {
-      token,
+      token: accessToken,  // for API clients
       csrf,
       user: { id: user.id, email: user.email, name: user.name, role: user.role }
     }
   });
 });
 
-// POST /auth/logout (client-side: just discard token)
+// POST /auth/logout — clear cookies
 authRoutes.post('/logout', (c) => {
-  return c.json({ success: true, message: 'Logged out. Discard your token.' });
+  clearAuthCookies(c);
+  return c.json({ success: true, message: 'Logged out' });
 });
 
-// GET /auth/session — verify and refresh token
-authRoutes.get('/session', requireAuth, async (c) => {
-  const user = c.get('user');
+// GET /auth/session — verify and return user info
+authRoutes.get('/session', async (c) => {
+  const user = await authenticateRequest(c);
+  if (!user) return c.json({ success: false, message: 'Not authenticated' }, 401);
+
   const dbUser = await c.env.DB.prepare(
     'SELECT id, email, name, role, avatar_url, phone FROM users WHERE id = ?'
   ).bind(user.id).first<any>();
 
-  if (!dbUser) return c.json({ success: false, message: 'User not found' }, 404);
-
-  const token = await createToken(
-    { id: dbUser.id, email: dbUser.email, role: dbUser.role, name: dbUser.name },
-    c.env.JWT_SECRET
-  );
-
-  return c.json({
-    success: true,
-    data: { user: dbUser, token }
-  });
+  return c.json({ success: true, data: { user: dbUser || user } });
 });
 
 // ── User Management (admin only) ──────────────────────────
@@ -443,12 +494,19 @@ authRoutes.get('/google/callback', async (c) => {
     return c.json({ success: false, message: 'Account suspended' }, 403);
   }
 
-  const token = await createToken(
+  const accessToken = await createToken(
     { id: user.id, email: user.email, role: user.role, name: user.name },
-    c.env.JWT_SECRET
+    c.env.JWT_SECRET, ACCESS_EXPIRY
   );
+  const refreshToken = await createToken(
+    { id: user.id, email: user.email, role: user.role, name: user.name },
+    c.env.JWT_SECRET, REFRESH_EXPIRY
+  );
+  const csrf = generateCSRF();
+  setAuthCookies(c, accessToken, refreshToken, csrf);
 
-  return c.redirect(`/admin.html?token=${token}`);
+  // Redirect to admin (cookies handle auth now)
+  return c.redirect(`/admin.html`);
 });
 
 // ── Profile update (self-service) ─────────────────────────

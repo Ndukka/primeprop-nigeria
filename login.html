@@ -150,7 +150,7 @@
       btn.disabled = true;
       err.style.display = 'none';
       try {
-        var res = await fetch('/auth/signup', {
+        var res = await fetch('/auth/signup', { credentials: 'include',
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -212,7 +212,7 @@
       errorEl.style.display = 'none';
 
       try {
-        const res = await fetch('/auth/login', {
+        const res = await fetch('/auth/login', { credentials: 'include',
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -223,9 +223,9 @@
         const data = await res.json();
 
         if (data.success) {
-          localStorage.setItem('pp_token', data.data.token);
-          if (data.data.csrf) localStorage.setItem('pp_csrf', data.data.csrf);
-          localStorage.setItem('pp_user', JSON.stringify(data.data.user));
+          
+          
+          
           const role = data.data.user.role;
           window.location.href = role === 'admin' ? '/admin.html' : '/agent.html';
         } else {
