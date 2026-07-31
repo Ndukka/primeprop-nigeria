@@ -283,7 +283,7 @@ function setupListingPage(defaultType) {
   }
 
   // Show skeleton loaders immediately
-  if (cardsGridEl) renderSkeletonCards(6, 'cardsGrid');
+  if (cardsGrid) renderSkeletonCards(6, 'cardsGrid');
 
   // Load all data for this page type
   async function load() {
