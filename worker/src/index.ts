@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { authRoutes, requireAuth, requireRole } from './auth';
+import { safeJsonParse, isYouTube, rowToListing } from './utils';
 import type { D1Database, R2Bucket } from '@cloudflare/workers-types';
 
 type Bindings = {
@@ -328,11 +329,15 @@ app.put('/api/listings/:id', requireAuth, async (c) => {
   return c.json({ success: true, data: rowToListing(updated) });
 });
 
-app.delete('/api/listings/:id', requireAuth, requireRole('admin'), async (c) => {
+app.delete('/api/listings/:id', requireAuth, async (c) => {
+  const user = c.get('user');
   const id = sanitizeNumber(c.req.param('id'));
   if (id <= 0) return c.json({ success: false, message: 'Invalid ID' }, 400);
-  const existing = await c.env.DB.prepare('SELECT id FROM listings WHERE id = ?').bind(id).first();
+  const existing: any = await c.env.DB.prepare('SELECT id, created_by FROM listings WHERE id = ?').bind(id).first();
   if (!existing) return c.json({ success: false, message: 'Listing not found' }, 404);
+  if (user.role !== 'admin' && existing.created_by !== user.id) {
+    return c.json({ success: false, message: 'You can only delete your own listings' }, 403);
+  }
   await c.env.DB.prepare('DELETE FROM listings WHERE id = ?').bind(id).run();
   return c.json({ success: true, message: 'Listing deleted' });
 });
@@ -453,51 +458,5 @@ app.get('/api/images/:key', async (c) => {
 app.route('/auth', authRoutes);
 
 // ── Helpers ───────────────────────────────────────────────
-function rowToListing(row: any) {
-  if (!row) return null;
-  const agentName = row.agent_name || '';
-  return {
-    ...row,
-    price: Number(row.price),
-    bedrooms: Number(row.bedrooms || 0),
-    bathrooms: Number(row.bathrooms || 0),
-    sqft: Number(row.sqft || 0),
-    parking: Number(row.parking || 0),
-    featured: Boolean(row.featured),
-    verified: Boolean(row.verified),
-    amenities: safeJsonParse(row.amenities, []),
-    images: safeJsonParse(row.images, []).map((url: string) => ({
-      url,
-      type: isYouTube(url) ? 'youtube' :
-            url.match(/\.(mp4|webm|mov)(\?|$)/i) ? 'video' :
-            url.match(/\.(pdf)(\?|$)/i) ? 'pdf' : 'image'
-    })),
-    priceDisplay: `₦${Number(row.price).toLocaleString()}`,
-    agent: {
-      name: agentName,
-      role: row.agent_role || '',
-      phone: row.agent_phone || '',
-      avatar: row.agent_avatar || '',
-      initials: agentName ? agentName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) : 'NA',
-    },
-    moveInCosts: row.annual_rent ? {
-      annualRent: Number(row.annual_rent),
-      agencyFee: Number(row.agency_fee || 0),
-      securityDeposit: Number(row.security_deposit || 0),
-      serviceCharge: Number(row.service_charge || 0),
-      total: Number(row.annual_rent) + Number(row.agency_fee || 0) + Number(row.security_deposit || 0) + Number(row.service_charge || 0),
-    } : null,
-  };
-}
-
-function safeJsonParse(val: any, fallback: any) {
-  if (!val) return fallback;
-  try { return typeof val === 'string' ? JSON.parse(val) : val; } catch { return fallback; }
-}
-
-function isYouTube(url: string): boolean {
-  if (!url) return false;
-  return /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)/i.test(url);
-}
 
 export default app;

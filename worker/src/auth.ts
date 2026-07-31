@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { SignJWT, jwtVerify } from 'jose';
 import bcrypt from 'bcryptjs';
 import type { D1Database } from '@cloudflare/workers-types';
+import { rowToListing } from './utils';
 
 type Bindings = {
   DB: D1Database;
@@ -342,7 +343,8 @@ authRoutes.get('/my-listings', requireAuth, async (c) => {
     'SELECT * FROM listings WHERE created_by = ? ORDER BY id DESC'
   ).bind(user.id).all();
 
-  return c.json({ success: true, data: results.map(rowToSummary) });
+  // Return full listing data so agent dashboard can edit properly
+  return c.json({ success: true, data: results.map(rowToListing) });
 });
 
 // ── Google OAuth ───────────────────────────────────────────
