@@ -457,6 +457,13 @@
       .modal-header { padding: 14px 16px; }
       .modal-footer { padding: 12px 16px; }
     }
+.upload-zone{border:2px dashed #e2e8f0;border-radius:10px;padding:20px;text-align:center;color:#94a3b8;cursor:pointer;transition:border-color .2s;margin-bottom:10px}
+.upload-zone:hover{border-color:#2563eb;color:#2563eb}
+.upload-zone i{font-size:1.5rem;margin-bottom:6px;display:block}
+.upload-preview{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.upload-preview-item{position:relative;width:80px;height:60px;border-radius:6px;overflow:hidden;border:1px solid #e2e8f0}
+.upload-preview-item img{width:100%;height:100%;object-fit:cover}
+.upload-preview-item .remove-btn{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);color:#fff;border:none;border-radius:50%;width:18px;height:18px;font-size:.65rem;cursor:pointer;display:flex;align-items:center;justify-content:center}
   </style>
 </head>
 <body>
@@ -677,13 +684,15 @@
 
           <div class="form-row full">
             <div class="form-group">
-              <label>Images (URLs)</label>
-              <div class="img-urls-list" id="imgUrlsList">
-                <div class="img-url-row">
-                  <input type="text" placeholder="https://images.unsplash.com/photo-…" class="img-url-input">
-                  <button type="button" class="btn btn-outline btn-xs" onclick="addImgUrl()"><i class="fa-solid fa-plus"></i></button>
-                </div>
+              <label>Images</label>
+              <div class="upload-zone" onclick="document.getElementById('adminFileInput').click()">
+                <i class="fa-solid fa-cloud-arrow-up"></i>Click to upload images, videos, or PDFs<br>
+                <small style="font-size:.7rem;">JPG, PNG, WebP, MP4, PDF — max 10MB (50MB for video)</small>
               </div>
+              <input type="file" id="adminFileInput" multiple accept="image/*,video/*,.pdf" style="display:none" onchange="handleAdminUpload(event)">
+              <div class="upload-preview" id="adminUploadPreview"></div>
+              <label style="margin-top:8px;font-size:.75rem;">Or paste URLs (one per line)</label>
+              <textarea id="formImages" rows="2" placeholder="https://images.unsplash.com/photo-…&#10;https://www.youtube.com/watch?v=…"></textarea>
             </div>
           </div>
 
@@ -965,6 +974,7 @@
     let editId = null;
     let districtEditId = null;
     let activeTab = 'listings';
+    let adminUploadedUrls = [];
 
     const API = '/api/listings';
     const DISTRICTS_API = '/api/districts';
@@ -1120,7 +1130,7 @@
 
       tbody.innerHTML = filtered.map(l => `
         <tr>
-          <td><img src="${l.images[0] || ''}" class="td-img" alt="${l.title}" onerror="this.style.display='none'"></td>
+          <td><img src="${l.images && l.images.length > 0 ? (typeof l.images[0] === 'string' ? l.images[0] : l.images[0].url) : ''}" class="td-img" alt="${l.title}" onerror="this.style.display='none'"></td>
           <td class="td-title" title="${l.title}">${l.title}</td>
           <td><span class="badge badge-${l.type}">${l.type === 'land' ? 'Land' : l.type === 'sale' ? 'For Sale' : 'For Rent'}</span></td>
           <td style="font-weight:600;white-space:nowrap;">₦${l.price.toLocaleString()}${l.priceUnit ? ' <small style="color:#94a3b8;font-weight:400;">' + l.priceUnit + '</small>' : ''}</td>
@@ -1192,15 +1202,24 @@
       renderAmenities();
 
       // Populate image URLs
-      const imgContainer = document.getElementById('imgUrlsList');
-      const images = listing.images || [''];
-      imgContainer.innerHTML = images.map(url => `
-        <div class="img-url-row">
-          <input type="text" value="${url || ''}" class="img-url-input" placeholder="https://images.unsplash.com/photo-…">
-          <button type="button" class="btn btn-outline btn-xs" onclick="removeImgUrl(this)"><i class="fa-solid fa-xmark"></i></button>
-          <button type="button" class="btn btn-outline btn-xs" onclick="addImgUrl()"><i class="fa-solid fa-plus"></i></button>
-        </div>
-      `).join('');
+      const images = (listing.images || []).map(function(i) { return typeof i === 'string' ? i : i.url; });
+      document.getElementById('formImages').value = images.join('\n');
+
+      // Populate upload preview
+      var preview = document.getElementById('adminUploadPreview');
+      if (preview) { preview.innerHTML = ''; }
+      adminUploadedUrls = images.slice();
+      // Build preview from existing URLs
+      images.forEach(function(u) {
+        if (!u) return;
+        var div = document.createElement('div'); div.className = 'upload-preview-item';
+        var isImg = /\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i.test(u);
+        var isPdf = /\.pdf(\?|$)/i.test(u);
+        div.innerHTML = isImg
+          ? '<img src="'+u+'" alt=""><button class="remove-btn" onclick="this.parentElement.remove();adminUploadedUrls=adminUploadedUrls.filter(function(x){return x!==\''+u+'\'})">&times;</button>'
+          : '<i class="fa-solid fa-'+(isPdf?'file-pdf':'file')+'" style="font-size:1.5rem;color:#64748b;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)"></i><button class="remove-btn" onclick="this.parentElement.remove();adminUploadedUrls=adminUploadedUrls.filter(function(x){return x!==\''+u+'\'})">&times;</button>';
+        if (preview) preview.appendChild(div);
+      });
 
       document.getElementById('listingModal').classList.add('active');
       onTypeChange();
@@ -1228,11 +1247,10 @@
       document.getElementById('moveInCostsSection').style.display = 'none';
       currentAmenities = [];
       renderAmenities();
-      document.getElementById('imgUrlsList').innerHTML = `
-        <div class="img-url-row">
-          <input type="text" placeholder="https://images.unsplash.com/photo-…" class="img-url-input">
-          <button type="button" class="btn btn-outline btn-xs" onclick="addImgUrl()"><i class="fa-solid fa-plus"></i></button>
-        </div>`;
+      document.getElementById('formImages').value = '';
+      adminUploadedUrls = [];
+      var preview = document.getElementById('adminUploadPreview');
+      if (preview) preview.innerHTML = '';
     }
 
     function onTypeChange() {
@@ -1275,9 +1293,10 @@
       if (e.key === 'Enter') { e.preventDefault(); addAmenity(); }
     });
 
-    // ── Image URLs ─────────────────────────────────────────
+    // ── Image URLs (legacy, kept for backward compat) ─────
     function addImgUrl() {
-      const container = document.getElementById('imgUrlsList');
+      var container = document.getElementById('imgUrlsList');
+      if (!container) return;
       const row = document.createElement('div');
       row.className = 'img-url-row';
       row.innerHTML = `
@@ -1331,7 +1350,12 @@
         parking: Number(document.getElementById('formParking').value),
         description: document.getElementById('formDescription').value.trim(),
         amenities: currentAmenities,
-        images: getImgUrls(),
+        images: (function() {
+          var textareaUrls = (document.getElementById('formImages').value || '').split('\n').map(function(s) { return s.trim(); }).filter(function(u) { return u.length > 0; });
+          var all = adminUploadedUrls.slice();
+          textareaUrls.forEach(function(u) { if (all.indexOf(u) === -1) all.push(u); });
+          return all;
+        })(),
         agent: {
           name: document.getElementById('formAgentName').value.trim() || 'PrimeProp Agent',
           initials: (document.getElementById('formAgentName').value.trim() || 'PA').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
@@ -1385,6 +1409,37 @@
       } finally {
         showLoading(false);
       }
+    }
+
+    // ── Admin Image Upload ────────────────────────────────
+    async function handleAdminUpload(e) {
+      var files = e.target.files;
+      if (!files.length) return;
+      showLoading(true);
+      var fd = new FormData();
+      for (var i = 0; i < files.length; i++) fd.append('files', files[i]);
+      try {
+        var res = await apiFetch('/api/images/upload', { method: 'POST', body: fd });
+        var data = await res.json();
+        if (data.success) {
+          var preview = document.getElementById('adminUploadPreview');
+          data.data.forEach(function(r) {
+            if (!r.error) {
+              adminUploadedUrls.push(r.url);
+              var div = document.createElement('div'); div.className = 'upload-preview-item';
+              div.innerHTML = r.type.startsWith('image/') 
+                ? '<img src="'+r.url+'" alt=""><button class="remove-btn" onclick="this.parentElement.remove();adminUploadedUrls=adminUploadedUrls.filter(function(u){return u!==\''+r.url+'\'})">&times;</button>'
+                : '<i class="fa-solid fa-'+(r.type==='application/pdf'?'file-pdf':'file')+'" style="font-size:1.5rem;color:#64748b;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)"></i><button class="remove-btn" onclick="this.parentElement.remove();adminUploadedUrls=adminUploadedUrls.filter(function(u){return u!==\''+r.url+'\'})">&times;</button>';
+              preview.appendChild(div);
+              var ta = document.getElementById('formImages');
+              ta.value = (ta.value.trim() + '\n' + r.url).trim();
+            }
+          });
+          showToast('Uploaded ' + data.data.filter(function(r){return !r.error;}).length + ' file(s)', 'success');
+        } else showToast(data.message || 'Upload failed', 'error');
+      } catch(ex) { showToast('Upload error', 'error'); }
+      showLoading(false);
+      e.target.value = '';
     }
 
     // ── District Modal ─────────────────────────────────────

@@ -153,6 +153,18 @@ function setupListingPage(defaultType) {
   const sizeBtns = document.querySelectorAll('.filter-tag-btn[data-size]');
   const priceMin = document.getElementById('priceMin');
   const priceMax = document.getElementById('priceMax');
+  const citySelect = document.getElementById('citySelect');
+
+  // Load dynamic cities into the filter dropdown
+  if (citySelect) {
+    fetch('/api/cities').then(r => r.json()).then(d => {
+      if (d.data && d.data.length > 0) {
+        const current = citySelect.value;
+        citySelect.innerHTML = '<option value="all">All Cities</option>' + d.data.map(function(c){ return '<option value="'+c.name+'">'+c.name+'</option>'; }).join('');
+        if (current) citySelect.value = current;
+      }
+    }).catch(function(){});
+  }
 
   let allData = [];
   let activeSize = null;
@@ -233,6 +245,10 @@ function setupListingPage(defaultType) {
     }
     if (purposeSelect && purposeSelect.value !== 'all') {
       filtered = filtered.filter(l => l.type === purposeSelect.value);
+    }
+    // City filter
+    if (citySelect && citySelect.value !== 'all') {
+      filtered = filtered.filter(l => l.city === citySelect.value);
     }
 
     // Property type filter (apartment, duplex, etc.)
@@ -361,6 +377,8 @@ function setupListingPage(defaultType) {
       if (bedroomBtns && bedroomBtns.length > 0) bedroomBtns[0].classList.add('active');
       if (priceMin) priceMin.value = '';
       if (priceMax) priceMax.value = '';
+      if (citySelect) citySelect.value = 'all';
+      if (typeSelect) typeSelect.value = 'all';
       load();
     });
   }
