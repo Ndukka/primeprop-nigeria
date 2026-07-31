@@ -1,0 +1,1466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel — PrimeProp Nigeria</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root { --dark: #0f172a; }
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #f1f5f9;
+      color: #1e293b;
+      min-height: 100vh;
+    }
+    /* Header */
+    .admin-header {
+      background: #0f172a;
+      color: white;
+      padding: 16px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    }
+    .admin-header .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1.1rem;
+    }
+    .admin-header .logo i { font-size: 1.2rem; }
+    .admin-header .header-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 9px 18px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.88rem;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+      font-family: 'Inter', sans-serif;
+      text-decoration: none;
+    }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-success { background: #16a34a; color: white; }
+    .btn-success:hover { background: #15803d; }
+    .btn-danger { background: #dc2626; color: white; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-outline { background: white; border: 1.5px solid #e2e8f0; color: #1e293b; }
+    .btn-outline:hover { background: #f8fafc; border-color: #94a3b8; }
+    .btn-sm { padding: 5px 12px; font-size: 0.8rem; }
+    .btn-xs { padding: 3px 8px; font-size: 0.72rem; border-radius: 6px; }
+
+    /* Tabs */
+    .tab-btn { transition: all 0.2s; }
+    .tab-active { background: var(--dark); color: white; }
+
+    /* Layout */
+    .admin-body {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px 32px;
+    }
+
+    /* Stats */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .stat-card {
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 20px 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .stat-card .stat-label {
+      font-size: 0.78rem;
+      color: #64748b;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+    .stat-card .stat-value {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    /* Toolbar */
+    .toolbar {
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .toolbar .search-box {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #f8fafc;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 8px 14px;
+      flex: 1;
+      max-width: 400px;
+    }
+    .toolbar .search-box input {
+      border: none;
+      background: transparent;
+      font-size: 0.9rem;
+      width: 100%;
+      outline: none;
+      font-family: 'Inter', sans-serif;
+    }
+    .toolbar .search-box i { color: #94a3b8; }
+    .toolbar .filter-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .toolbar select {
+      border: 1.5px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 0.85rem;
+      background: white;
+      font-family: 'Inter', sans-serif;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    /* Table */
+    .table-wrap {
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      margin-bottom: 24px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    thead {
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    thead th {
+      padding: 12px 16px;
+      text-align: left;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: 12px 16px;
+      font-size: 0.88rem;
+      border-bottom: 1px solid #f1f5f9;
+      vertical-align: middle;
+    }
+    tbody tr:hover { background: #f8fafc; }
+    .td-title {
+      font-weight: 600;
+      color: #0f172a;
+      max-width: 220px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .td-img {
+      width: 60px;
+      height: 44px;
+      border-radius: 6px;
+      object-fit: cover;
+      background: #e2e8f0;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .badge-rent { background: #dbeafe; color: #1d4ed8; }
+    .badge-sale { background: #f1f5f9; color: #0f172a; }
+    .badge-land { background: #dcfce7; color: #15803d; }
+    .badge-featured { background: #fef3c7; color: #92400e; }
+    .actions-cell {
+      display: flex;
+      gap: 6px;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15,23,42,0.6);
+      backdrop-filter: blur(3px);
+      z-index: 100;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 40px 20px;
+      overflow-y: auto;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: white;
+      border-radius: 16px;
+      width: 100%;
+      max-width: 720px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+      position: relative;
+    }
+    .modal-header {
+      padding: 20px 28px;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-header h2 {
+      font-size: 1.2rem;
+      font-weight: 700;
+    }
+    .modal-close {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 1px solid #e2e8f0;
+      background: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      transition: all 0.2s;
+    }
+    .modal-close:hover { background: #f1f5f9; }
+    .modal-body {
+      padding: 24px 28px;
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+    .modal-footer {
+      padding: 16px 28px;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    /* Form */
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .form-row.full { grid-template-columns: 1fr; }
+    .form-row.triple { grid-template-columns: 1fr 1fr 1fr; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-group label {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      border: 1.5px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 0.88rem;
+      font-family: 'Inter', sans-serif;
+      outline: none;
+      transition: border-color 0.2s;
+      resize: vertical;
+    }
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+      border-color: #2563eb;
+    }
+    .form-group textarea { min-height: 80px; }
+    .amenities-input, .checks-input {
+      display: flex;
+      gap: 8px;
+    }
+    .amenities-input input, .checks-input input { flex: 1; }
+    .amenity-tags, .check-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .amenity-tag, .check-tag {
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .amenity-tag button, .check-tag button {
+      border: none;
+      background: none;
+      cursor: pointer;
+      color: #94a3b8;
+      font-size: 0.9rem;
+      padding: 0;
+      line-height: 1;
+    }
+    .amenity-tag button:hover, .check-tag button:hover { color: #dc2626; }
+    .img-urls-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .img-url-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .img-url-row input { flex: 1; }
+    .img-url-row button { flex-shrink: 0; }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #0f172a;
+      color: white;
+      padding: 14px 20px;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      z-index: 200;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.3s;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.success { background: #16a34a; }
+    .toast.error { background: #dc2626; }
+
+    /* Confirm dialog */
+    .confirm-dialog {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15,23,42,0.6);
+      z-index: 150;
+      align-items: center;
+      justify-content: center;
+    }
+    .confirm-dialog.active { display: flex; }
+    .confirm-box {
+      background: white;
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 420px;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    }
+    .confirm-box h3 { margin-bottom: 8px; }
+    .confirm-box p { color: #64748b; font-size: 0.9rem; margin-bottom: 20px; }
+    .confirm-box .btn-group { display: flex; gap: 10px; justify-content: center; }
+
+    /* Loading */
+    .loading-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(255,255,255,0.7);
+      z-index: 180;
+      align-items: center;
+      justify-content: center;
+    }
+    .loading-overlay.active { display: flex; }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #e2e8f0;
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .empty-state-admin {
+      text-align: center;
+      padding: 60px 20px;
+      color: #94a3b8;
+    }
+    .empty-state-admin i { font-size: 3rem; margin-bottom: 12px; display: block; }
+    .text-right { text-align: right; }
+
+    @media (max-width: 1024px) {
+      .stats-grid { grid-template-columns: repeat(3, 1fr); }
+      .form-row, .form-row.triple { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 640px) {
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .admin-body { padding: 12px; }
+      .admin-header { padding: 10px 14px; flex-wrap: wrap; gap: 8px; }
+      .admin-header .logo { font-size: 0.9rem; }
+      .admin-header .btn { font-size: 0.78rem; padding: 6px 12px; }
+      table { font-size: 0.72rem; }
+      thead th, tbody td { padding: 6px 4px; }
+      .td-title { max-width: 80px; }
+      .actions-cell { gap: 3px; }
+      .toolbar { flex-direction: column; gap: 8px; }
+      .toolbar .search-box { max-width: 100%; }
+      .toolbar .filter-group { width: 100%; }
+      .toolbar select { flex: 1; }
+      .modal { margin: 10px; border-radius: 12px; }
+      .modal-body { padding: 16px; max-height: 50vh; }
+      .modal-header { padding: 14px 16px; }
+      .modal-footer { padding: 12px 16px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="admin-header">
+    <div class="logo">
+      <i class="fa-solid fa-building"></i>
+      <span>PrimeProp Nigeria</span>
+      <span style="color: #94a3b8; font-weight: 400; font-size: 0.85rem;">| Admin</span>
+    </div>
+    <div class="header-actions">
+      <a href="index.html" class="btn btn-sm" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.25);">
+        <i class="fa-solid fa-arrow-right"></i> View Site
+      </a>
+      <button class="btn btn-success" id="addButton" onclick="openAddModal()">
+        <i class="fa-solid fa-plus"></i> Add Listing
+      </button>
+    </div>
+  </div>
+
+  <div class="admin-body">
+    <!-- Stats -->
+    <div class="stats-grid" id="statsGrid">
+      <div class="stat-card"><div class="stat-label">Total Listings</div><div class="stat-value" id="statTotal">—</div></div>
+      <div class="stat-card"><div class="stat-label">For Rent</div><div class="stat-value" id="statRent">—</div></div>
+      <div class="stat-card"><div class="stat-label">For Sale</div><div class="stat-value" id="statSale">—</div></div>
+      <div class="stat-card"><div class="stat-label">Land</div><div class="stat-value" id="statLand">—</div></div>
+      <div class="stat-card"><div class="stat-label">Featured</div><div class="stat-value" id="statFeatured">—</div></div>
+    </div>
+
+    <!-- Tab Switcher -->
+    <div style="display:flex;gap:8px;margin-bottom:16px;">
+      <button class="btn btn-sm tab-btn tab-active" id="tabListings" onclick="switchTab('listings')" style="border-radius:8px;">📋 Listings</button>
+      <button class="btn btn-sm tab-btn btn-outline" id="tabDistricts" onclick="switchTab('districts')" style="border-radius:8px;">🗺️ Districts</button>
+    </div>
+
+    <!-- Toolbar (listings) -->
+    <div class="toolbar" id="listingsToolbar">
+      <div class="search-box">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input type="text" id="searchInput" placeholder="Search by title, location, area…" oninput="renderTable()">
+      </div>
+      <div class="filter-group">
+        <select id="filterType" onchange="renderTable()">
+          <option value="all">All Types</option>
+          <option value="rent">Rent</option>
+          <option value="sale">Sale</option>
+          <option value="land">Land</option>
+        </select>
+        <select id="filterCity" onchange="renderTable()">
+          <option value="all">All Cities</option>
+          <option value="Lagos">Lagos</option>
+          <option value="Abuja">Abuja</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Listings Table -->
+    <div class="table-wrap" id="listingsTableWrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Image</th>
+            <th>Title</th>
+            <th>Type</th>
+            <th>Price</th>
+            <th>Location</th>
+            <th>Beds</th>
+            <th>Baths</th>
+            <th>Featured</th>
+            <th>Verified</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody">
+          <tr><td colspan="10" class="empty-state-admin"><i class="fa-solid fa-spinner"></i> Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Districts Table -->
+    <div class="table-wrap" id="districtsTableWrap" style="display:none;">
+      <table>
+        <thead>
+          <tr>
+            <th>Image</th>
+            <th>Name</th>
+            <th>City</th>
+            <th>Checks</th>
+            <th>Link Type</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="districtsTableBody">
+          <tr><td colspan="6" class="empty-state-admin"><i class="fa-solid fa-spinner"></i> Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Add/Edit Listing Modal -->
+  <div class="modal-overlay" id="listingModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modalTitle">Add New Listing</h2>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="listingForm">
+          <input type="hidden" id="formId">
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Title *</label>
+              <input type="text" id="formTitle" required placeholder="e.g. 3-Bedroom Modern Apartment">
+            </div>
+            <div class="form-group">
+              <label>Property Type</label>
+              <select id="formPropertyType">
+                <option value="apartment">Apartment / Flat</option>
+                <option value="duplex">Duplex</option>
+                <option value="detached">Detached House</option>
+                <option value="terrace">Terrace</option>
+                <option value="villa">Villa</option>
+                <option value="land">Land / Plot</option>
+                <option value="commercial">Commercial</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row triple">
+            <div class="form-group">
+              <label>Listing Type *</label>
+              <select id="formType" onchange="onTypeChange()">
+                <option value="rent">For Rent</option>
+                <option value="sale">For Sale</option>
+                <option value="land">Land</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Price (₦) *</label>
+              <input type="number" id="formPrice" required placeholder="3500000">
+            </div>
+            <div class="form-group">
+              <label>Price Unit</label>
+              <input type="text" id="formPriceUnit" placeholder="/ year">
+            </div>
+          </div>
+
+          <div class="form-row triple">
+            <div class="form-group">
+              <label>Location *</label>
+              <input type="text" id="formLocation" required placeholder="Lekki Phase 1, Lagos">
+            </div>
+            <div class="form-group">
+              <label>Area</label>
+              <input type="text" id="formArea" placeholder="Lekki Phase 1">
+            </div>
+            <div class="form-group">
+              <label>City</label>
+              <select id="formCity">
+                <option value="Lagos">Lagos</option>
+                <option value="Abuja">Abuja</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row" style="grid-template-columns: 1fr 1fr 1fr 1fr;">
+            <div class="form-group">
+              <label>Bedrooms</label>
+              <input type="number" id="formBedrooms" value="0" min="0">
+            </div>
+            <div class="form-group">
+              <label>Bathrooms</label>
+              <input type="number" id="formBathrooms" value="0" min="0">
+            </div>
+            <div class="form-group">
+              <label>Sqft / SQM</label>
+              <input type="number" id="formSqft" value="0" min="0">
+            </div>
+            <div class="form-group">
+              <label>Parking</label>
+              <input type="number" id="formParking" value="0" min="0">
+            </div>
+          </div>
+
+          <div class="form-row full">
+            <div class="form-group">
+              <label>Description</label>
+              <textarea id="formDescription" placeholder="Describe the property…"></textarea>
+            </div>
+          </div>
+
+          <div class="form-row full">
+            <div class="form-group">
+              <label>Amenities</label>
+              <div class="amenities-input">
+                <input type="text" id="amenityInput" placeholder="Add an amenity (press Enter)">
+                <button type="button" class="btn btn-outline btn-sm" onclick="addAmenity()">Add</button>
+              </div>
+              <div class="amenity-tags" id="amenityTags"></div>
+            </div>
+          </div>
+
+          <div class="form-row full">
+            <div class="form-group">
+              <label>Images (URLs)</label>
+              <div class="img-urls-list" id="imgUrlsList">
+                <div class="img-url-row">
+                  <input type="text" placeholder="https://images.unsplash.com/photo-…" class="img-url-input">
+                  <button type="button" class="btn btn-outline btn-xs" onclick="addImgUrl()"><i class="fa-solid fa-plus"></i></button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Agent Name</label>
+              <input type="text" id="formAgentName" placeholder="Ade Okafor">
+            </div>
+            <div class="form-group">
+              <label>Agent Phone (WhatsApp)</label>
+              <input type="text" id="formAgentPhone" placeholder="2348000000000">
+            </div>
+            <div class="form-group">
+              <label>Agent Role</label>
+              <input type="text" id="formAgentRole" placeholder="Listing Agent — Lagos">
+            </div>
+          </div>
+          <div class="form-row full">
+            <div class="form-group">
+              <label>Agent Profile Picture URL (optional)</label>
+              <input type="text" id="formAgentAvatar" placeholder="https://randomuser.me/api/portraits/men/32.jpg">
+            </div>
+          </div>
+
+          <div class="form-row triple">
+            <div class="form-group">
+              <label>Availability</label>
+              <input type="text" id="formAvailability" value="Immediately">
+            </div>
+            <div class="form-group">
+              <label>Badge</label>
+              <select id="formBadge">
+                <option value="">None</option>
+                <option value="Featured">Featured</option>
+                <option value="New">New</option>
+                <option value="Hot Deal">Hot Deal</option>
+              </select>
+            </div>
+            <div class="form-group" style="justify-content: flex-end;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" id="formFeatured"> Featured Listing
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:4px;">
+                <input type="checkbox" id="formVerified"> Verified Property ✓
+              </label>
+            </div>
+          </div>
+
+          <!-- Move-in Costs (for rent listings) -->
+          <div id="moveInCostsSection" style="display:none;">
+            <h4 style="font-size:0.85rem;font-weight:700;color:var(--heading);margin-bottom:12px;border-top:1px solid #e2e8f0;padding-top:14px;">Move-in Cost Estimate (rent only)</h4>
+            <div class="form-row" style="grid-template-columns: 1fr 1fr 1fr 1fr;">
+              <div class="form-group">
+                <label>Annual Rent (₦)</label>
+                <input type="number" id="formAnnualRent" placeholder="3500000">
+              </div>
+              <div class="form-group">
+                <label>Agency Fee (₦)</label>
+                <input type="number" id="formAgencyFee" placeholder="350000">
+              </div>
+              <div class="form-group">
+                <label>Security Deposit (₦)</label>
+                <input type="number" id="formSecurityDeposit" placeholder="291667">
+              </div>
+              <div class="form-group">
+                <label>Service Charge (₦)</label>
+                <input type="number" id="formServiceCharge" placeholder="200000">
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" id="modalSaveBtn" onclick="saveListing()">Save Listing</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add/Edit District Modal -->
+  <div class="modal-overlay" id="districtModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="districtModalTitle">Add New District</h2>
+        <button class="modal-close" onclick="closeDistrictModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="districtForm">
+          <input type="hidden" id="districtFormId">
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Name *</label>
+              <input type="text" id="districtFormName" required placeholder="e.g. Ikoyi">
+            </div>
+            <div class="form-group">
+              <label>City *</label>
+              <select id="districtFormCity">
+                <option value="Lagos">Lagos</option>
+                <option value="Abuja">Abuja</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Link Type</label>
+              <select id="districtFormLinkType">
+                <option value="all">All</option>
+                <option value="sale">Sale</option>
+                <option value="rent">Rent</option>
+                <option value="land">Land</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Image URL</label>
+              <input type="text" id="districtFormImage" placeholder="https://images.unsplash.com/photo-…">
+            </div>
+          </div>
+
+          <div class="form-row full">
+            <div class="form-group">
+              <label>Description</label>
+              <textarea id="districtFormDescription" placeholder="Describe the district…"></textarea>
+            </div>
+          </div>
+
+          <div class="form-row full">
+            <div class="form-group">
+              <label>Checks</label>
+              <div class="checks-input">
+                <input type="text" id="districtCheckInput" placeholder="Add a check tag (press Enter)">
+                <button type="button" class="btn btn-outline btn-sm" onclick="addDistrictCheck()">Add</button>
+              </div>
+              <div class="check-tags" id="districtCheckTags"></div>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeDistrictModal()">Cancel</button>
+        <button class="btn btn-primary" id="districtModalSaveBtn" onclick="saveDistrict()">Save District</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Delete Dialog -->
+  <div class="confirm-dialog" id="confirmDialog">
+    <div class="confirm-box">
+      <i class="fa-solid fa-triangle-exclamation" style="font-size:2.5rem;color:#f59e0b;margin-bottom:12px;"></i>
+      <h3 id="confirmTitle">Delete this listing?</h3>
+      <p id="confirmMsg">This action cannot be undone. The listing will be permanently removed.</p>
+      <div class="btn-group">
+        <button class="btn btn-outline" onclick="closeConfirm()">Cancel</button>
+        <button class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <!-- Loading -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+  </div>
+
+  <script>
+    // ── State ──────────────────────────────────────────────
+    let allListings = [];
+    let allDistricts = [];
+    let currentAmenities = [];
+    let currentDistrictChecks = [];
+    let deleteTargetId = null;
+    let deleteTargetType = 'listing'; // 'listing' or 'district'
+    let editId = null;
+    let districtEditId = null;
+    let activeTab = 'listings';
+
+    const API = '/api/listings';
+    const DISTRICTS_API = '/api/districts';
+
+    // ── Toast ──────────────────────────────────────────────
+    function showToast(msg, type = '') {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = 'toast ' + type + ' show';
+      setTimeout(() => { t.className = 'toast'; }, 3000);
+    }
+
+    // ── Tab Switching ──────────────────────────────────────
+    function switchTab(tab) {
+      activeTab = tab;
+      const tabListings = document.getElementById('tabListings');
+      const tabDistricts = document.getElementById('tabDistricts');
+      const listingsTableWrap = document.getElementById('listingsTableWrap');
+      const districtsTableWrap = document.getElementById('districtsTableWrap');
+      const listingsToolbar = document.getElementById('listingsToolbar');
+      const addButton = document.getElementById('addButton');
+
+      if (tab === 'listings') {
+        tabListings.classList.add('tab-active');
+        tabListings.classList.remove('btn-outline');
+        tabDistricts.classList.remove('tab-active');
+        tabDistricts.classList.add('btn-outline');
+        listingsTableWrap.style.display = '';
+        districtsTableWrap.style.display = 'none';
+        listingsToolbar.style.display = '';
+        addButton.innerHTML = '<i class="fa-solid fa-plus"></i> Add Listing';
+        addButton.onclick = openAddModal;
+      } else {
+        tabDistricts.classList.add('tab-active');
+        tabDistricts.classList.remove('btn-outline');
+        tabListings.classList.remove('tab-active');
+        tabListings.classList.add('btn-outline');
+        listingsTableWrap.style.display = 'none';
+        districtsTableWrap.style.display = '';
+        listingsToolbar.style.display = 'none';
+        addButton.innerHTML = '<i class="fa-solid fa-plus"></i> Add District';
+        addButton.onclick = openDistrictModal;
+        loadDistrictsData();
+      }
+    }
+
+    // ── Load Listings ──────────────────────────────────────
+    async function loadData() {
+      try {
+        const [listRes, statsRes] = await Promise.all([
+          fetch(API),
+          fetch('/api/stats')
+        ]);
+        const listData = await listRes.json();
+        const statsData = await statsRes.json();
+
+        allListings = listData.data || [];
+        if (activeTab === 'listings') {
+          renderTable();
+        }
+
+        if (statsData.success) {
+          document.getElementById('statTotal').textContent = statsData.data.total;
+          document.getElementById('statRent').textContent = statsData.data.rent;
+          document.getElementById('statSale').textContent = statsData.data.sale;
+          document.getElementById('statLand').textContent = statsData.data.land;
+          document.getElementById('statFeatured').textContent = statsData.data.featured;
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Failed to load listings. Is the server running?', 'error');
+      }
+    }
+
+    // ── Load Districts ─────────────────────────────────────
+    async function loadDistrictsData() {
+      try {
+        const res = await fetch(DISTRICTS_API);
+        const data = await res.json();
+        allDistricts = data.data || [];
+        renderDistrictsTable();
+      } catch (err) {
+        console.error(err);
+        showToast('Failed to load districts. Is the server running?', 'error');
+      }
+    }
+
+    function renderDistrictsTable() {
+      const tbody = document.getElementById('districtsTableBody');
+
+      if (allDistricts.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="empty-state-admin"><i class="fa-solid fa-folder-open"></i><p>No districts found</p></td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = allDistricts.map(d => `
+        <tr>
+          <td><img src="${d.image || ''}" class="td-img" alt="${d.name}" onerror="this.style.display='none'"></td>
+          <td class="td-title" title="${d.name}">${d.name}</td>
+          <td>${d.city || '—'}</td>
+          <td>${(d.checks || []).map(c => `<span class="badge badge-land" style="margin-right:4px;">${c}</span>`).join('') || '—'}</td>
+          <td><span class="badge badge-${d.linkType || 'all'}">${d.linkType || 'all'}</span></td>
+          <td>
+            <div class="actions-cell">
+              <button class="btn btn-outline btn-xs" onclick="openDistrictModal(${d.id})" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>
+              <button class="btn btn-danger btn-xs" onclick="confirmDeleteDistrict(${d.id}, '${(d.name || '').replace(/'/g, "\\'")}')" title="Delete"><i class="fa-solid fa-trash"></i></button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    // ── Render Listings Table ──────────────────────────────
+    function renderTable() {
+      const tbody = document.getElementById('tableBody');
+      const search = document.getElementById('searchInput').value.toLowerCase();
+      const filterType = document.getElementById('filterType').value;
+      const filterCity = document.getElementById('filterCity').value;
+
+      let filtered = allListings;
+
+      if (filterType !== 'all') filtered = filtered.filter(l => l.type === filterType);
+      if (filterCity !== 'all') filtered = filtered.filter(l => l.city === filterCity);
+      if (search) {
+        filtered = filtered.filter(l =>
+          l.title.toLowerCase().includes(search) ||
+          l.location.toLowerCase().includes(search) ||
+          l.area.toLowerCase().includes(search) ||
+          l.city.toLowerCase().includes(search)
+        );
+      }
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" class="empty-state-admin"><i class="fa-solid fa-folder-open"></i><p>No listings found</p></td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(l => `
+        <tr>
+          <td><img src="${l.images[0] || ''}" class="td-img" alt="${l.title}" onerror="this.style.display='none'"></td>
+          <td class="td-title" title="${l.title}">${l.title}</td>
+          <td><span class="badge badge-${l.type}">${l.type === 'land' ? 'Land' : l.type === 'sale' ? 'For Sale' : 'For Rent'}</span></td>
+          <td style="font-weight:600;white-space:nowrap;">₦${l.price.toLocaleString()}${l.priceUnit ? ' <small style="color:#94a3b8;font-weight:400;">' + l.priceUnit + '</small>' : ''}</td>
+          <td style="color:#64748b;">${l.location}</td>
+          <td>${l.bedrooms || '—'}</td>
+          <td>${l.bathrooms || '—'}</td>
+          <td>${l.featured ? '<span class="badge badge-featured">★ Featured</span>' : '—'}</td>
+          <td>${l.verified ? '<span style="color:#16a34a;"><i class="fa-solid fa-circle-check"></i> Verified</span>' : '<span style="color:#94a3b8;">—</span>'}</td>
+          <td>
+            <div class="actions-cell">
+              <button class="btn btn-outline btn-xs" onclick="openEditModal(${l.id})" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>
+              <button class="btn btn-danger btn-xs" onclick="confirmDelete(${l.id}, '${l.title.replace(/'/g, "\\'")}')" title="Delete"><i class="fa-solid fa-trash"></i></button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    // ── Listing Modal ──────────────────────────────────────
+    function openAddModal() {
+      editId = null;
+      document.getElementById('modalTitle').textContent = 'Add New Listing';
+      document.getElementById('modalSaveBtn').textContent = 'Create Listing';
+      resetForm();
+      document.getElementById('listingModal').classList.add('active');
+      onTypeChange();
+    }
+
+    function openEditModal(id) {
+      const listing = allListings.find(l => l.id === id);
+      if (!listing) return;
+
+      editId = id;
+      document.getElementById('modalTitle').textContent = 'Edit Listing';
+      document.getElementById('modalSaveBtn').textContent = 'Update Listing';
+
+      document.getElementById('formId').value = listing.id;
+      document.getElementById('formTitle').value = listing.title;
+      document.getElementById('formPropertyType').value = listing.propertyType || 'apartment';
+      document.getElementById('formType').value = listing.type;
+      document.getElementById('formPrice').value = listing.price;
+      document.getElementById('formPriceUnit').value = listing.priceUnit || '';
+      document.getElementById('formLocation').value = listing.location;
+      document.getElementById('formArea').value = listing.area || '';
+      document.getElementById('formCity').value = listing.city || 'Lagos';
+      document.getElementById('formBedrooms').value = listing.bedrooms || 0;
+      document.getElementById('formBathrooms').value = listing.bathrooms || 0;
+      document.getElementById('formSqft').value = listing.sqft || 0;
+      document.getElementById('formParking').value = listing.parking || 0;
+      document.getElementById('formDescription').value = listing.description || '';
+      document.getElementById('formAgentName').value = listing.agent?.name || '';
+      document.getElementById('formAgentPhone').value = listing.agent?.phone || '';
+      document.getElementById('formAgentRole').value = listing.agent?.role || '';
+      document.getElementById('formAgentAvatar').value = listing.agent?.avatar || '';
+      document.getElementById('formAvailability').value = listing.availability || 'Immediately';
+      document.getElementById('formBadge').value = listing.badge || '';
+      document.getElementById('formFeatured').checked = listing.featured || false;
+      document.getElementById('formVerified').checked = listing.verified || false;
+
+      // Move-in costs
+      if (listing.moveInCosts) {
+        document.getElementById('formAnnualRent').value = listing.moveInCosts.annualRent || '';
+        document.getElementById('formAgencyFee').value = listing.moveInCosts.agencyFee || '';
+        document.getElementById('formSecurityDeposit').value = listing.moveInCosts.securityDeposit || '';
+        document.getElementById('formServiceCharge').value = listing.moveInCosts.serviceCharge || '';
+      }
+
+      currentAmenities = [...(listing.amenities || [])];
+      renderAmenities();
+
+      // Populate image URLs
+      const imgContainer = document.getElementById('imgUrlsList');
+      const images = listing.images || [''];
+      imgContainer.innerHTML = images.map(url => `
+        <div class="img-url-row">
+          <input type="text" value="${url || ''}" class="img-url-input" placeholder="https://images.unsplash.com/photo-…">
+          <button type="button" class="btn btn-outline btn-xs" onclick="removeImgUrl(this)"><i class="fa-solid fa-xmark"></i></button>
+          <button type="button" class="btn btn-outline btn-xs" onclick="addImgUrl()"><i class="fa-solid fa-plus"></i></button>
+        </div>
+      `).join('');
+
+      document.getElementById('listingModal').classList.add('active');
+      onTypeChange();
+    }
+
+    function closeModal() {
+      document.getElementById('listingModal').classList.remove('active');
+      resetForm();
+      editId = null;
+    }
+
+    function resetForm() {
+      document.getElementById('listingForm').reset();
+      document.getElementById('formId').value = '';
+      document.getElementById('formPropertyType').value = 'apartment';
+      document.getElementById('formType').value = 'rent';
+      document.getElementById('formCity').value = 'Lagos';
+      document.getElementById('formAvailability').value = 'Immediately';
+      document.getElementById('formAgentRole').value = '';
+      document.getElementById('formAgentAvatar').value = '';
+      document.getElementById('formAnnualRent').value = '';
+      document.getElementById('formAgencyFee').value = '';
+      document.getElementById('formSecurityDeposit').value = '';
+      document.getElementById('formServiceCharge').value = '';
+      document.getElementById('moveInCostsSection').style.display = 'none';
+      currentAmenities = [];
+      renderAmenities();
+      document.getElementById('imgUrlsList').innerHTML = `
+        <div class="img-url-row">
+          <input type="text" placeholder="https://images.unsplash.com/photo-…" class="img-url-input">
+          <button type="button" class="btn btn-outline btn-xs" onclick="addImgUrl()"><i class="fa-solid fa-plus"></i></button>
+        </div>`;
+    }
+
+    function onTypeChange() {
+      const type = document.getElementById('formType').value;
+      const priceUnit = document.getElementById('formPriceUnit');
+      const moveInSection = document.getElementById('moveInCostsSection');
+      if (type === 'rent') {
+        priceUnit.value = priceUnit.value || '/ year';
+        if (moveInSection) moveInSection.style.display = 'block';
+      } else {
+        if (priceUnit.value === '/ year') priceUnit.value = '';
+        if (moveInSection) moveInSection.style.display = 'none';
+      }
+    }
+
+    // ── Amenities ──────────────────────────────────────────
+    function addAmenity() {
+      const input = document.getElementById('amenityInput');
+      const val = input.value.trim();
+      if (val && !currentAmenities.includes(val)) {
+        currentAmenities.push(val);
+        renderAmenities();
+      }
+      input.value = '';
+      input.focus();
+    }
+
+    function removeAmenity(idx) {
+      currentAmenities.splice(idx, 1);
+      renderAmenities();
+    }
+
+    function renderAmenities() {
+      document.getElementById('amenityTags').innerHTML = currentAmenities.map((a, i) => `
+        <span class="amenity-tag">${a} <button onclick="removeAmenity(${i})">&times;</button></span>
+      `).join('');
+    }
+
+    document.getElementById('amenityInput').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); addAmenity(); }
+    });
+
+    // ── Image URLs ─────────────────────────────────────────
+    function addImgUrl() {
+      const container = document.getElementById('imgUrlsList');
+      const row = document.createElement('div');
+      row.className = 'img-url-row';
+      row.innerHTML = `
+        <input type="text" placeholder="https://images.unsplash.com/photo-…" class="img-url-input">
+        <button type="button" class="btn btn-outline btn-xs" onclick="removeImgUrl(this)"><i class="fa-solid fa-xmark"></i></button>
+        <button type="button" class="btn btn-outline btn-xs" onclick="addImgUrl()"><i class="fa-solid fa-plus"></i></button>`;
+      container.appendChild(row);
+    }
+
+    function removeImgUrl(btn) {
+      const row = btn.parentElement;
+      if (document.querySelectorAll('.img-url-row').length > 1) {
+        row.remove();
+      } else {
+        row.querySelector('input').value = '';
+      }
+    }
+
+    function getImgUrls() {
+      return [...document.querySelectorAll('.img-url-input')]
+        .map(i => i.value.trim())
+        .filter(u => u.length > 0);
+    }
+
+    // ── Save Listing ───────────────────────────────────────
+    async function saveListing() {
+      const title = document.getElementById('formTitle').value.trim();
+      const type = document.getElementById('formType').value;
+      const price = document.getElementById('formPrice').value;
+      const location = document.getElementById('formLocation').value.trim();
+
+      if (!title || !price || !location) {
+        showToast('Please fill in Title, Price, and Location.', 'error');
+        return;
+      }
+
+      const priceNum = Number(price);
+      const listingData = {
+        title,
+        type,
+        propertyType: document.getElementById('formPropertyType').value,
+        price: priceNum,
+        priceDisplay: `₦${priceNum.toLocaleString()}`,
+        priceUnit: document.getElementById('formPriceUnit').value,
+        location,
+        area: document.getElementById('formArea').value.trim(),
+        city: document.getElementById('formCity').value,
+        bedrooms: Number(document.getElementById('formBedrooms').value),
+        bathrooms: Number(document.getElementById('formBathrooms').value),
+        sqft: Number(document.getElementById('formSqft').value),
+        parking: Number(document.getElementById('formParking').value),
+        description: document.getElementById('formDescription').value.trim(),
+        amenities: currentAmenities,
+        images: getImgUrls(),
+        agent: {
+          name: document.getElementById('formAgentName').value.trim() || 'PrimeProp Agent',
+          initials: (document.getElementById('formAgentName').value.trim() || 'PA').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
+          phone: document.getElementById('formAgentPhone').value.trim() || '2348000000000',
+          role: document.getElementById('formAgentRole').value.trim() || 'Agent',
+          avatar: document.getElementById('formAgentAvatar').value.trim() || ''
+        },
+        availability: document.getElementById('formAvailability').value.trim() || 'Immediately',
+        featured: document.getElementById('formFeatured').checked,
+        verified: document.getElementById('formVerified').checked,
+        badge: document.getElementById('formBadge').value
+      };
+
+      // Move-in costs for rent listings
+      if (listingData.type === 'rent') {
+        const annualRent = parseInt(document.getElementById('formAnnualRent').value) || listingData.price;
+        const agencyFee = parseInt(document.getElementById('formAgencyFee').value) || Math.round(listingData.price * 0.1);
+        const securityDeposit = parseInt(document.getElementById('formSecurityDeposit').value) || Math.round(listingData.price / 12);
+        const serviceCharge = parseInt(document.getElementById('formServiceCharge').value) || 0;
+        listingData.moveInCosts = {
+          annualRent,
+          agencyFee,
+          securityDeposit,
+          serviceCharge,
+          total: annualRent + agencyFee + securityDeposit + serviceCharge
+        };
+      }
+
+      const isEdit = editId !== null;
+      const url = isEdit ? `${API}/${editId}` : API;
+      const method = isEdit ? 'PUT' : 'POST';
+
+      try {
+        showLoading(true);
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(listingData)
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          showToast(isEdit ? 'Listing updated!' : 'Listing created!', 'success');
+          closeModal();
+          await loadData();
+        } else {
+          showToast(data.message || 'Failed to save listing.', 'error');
+        }
+      } catch (err) {
+        showToast('Network error. Is the server running?', 'error');
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    // ── District Modal ─────────────────────────────────────
+    function openDistrictModal(id) {
+      districtEditId = id || null;
+
+      if (id) {
+        const district = allDistricts.find(d => d.id === id);
+        if (!district) return;
+
+        document.getElementById('districtModalTitle').textContent = 'Edit District';
+        document.getElementById('districtModalSaveBtn').textContent = 'Update District';
+        document.getElementById('districtFormId').value = district.id;
+        document.getElementById('districtFormName').value = district.name || '';
+        document.getElementById('districtFormCity').value = district.city || 'Lagos';
+        document.getElementById('districtFormLinkType').value = district.linkType || 'all';
+        document.getElementById('districtFormImage').value = district.image || '';
+        document.getElementById('districtFormDescription').value = district.description || '';
+        currentDistrictChecks = [...(district.checks || [])];
+        renderDistrictChecks();
+      } else {
+        document.getElementById('districtModalTitle').textContent = 'Add New District';
+        document.getElementById('districtModalSaveBtn').textContent = 'Save District';
+        resetDistrictForm();
+      }
+
+      document.getElementById('districtModal').classList.add('active');
+    }
+
+    function closeDistrictModal() {
+      document.getElementById('districtModal').classList.remove('active');
+      resetDistrictForm();
+      districtEditId = null;
+    }
+
+    function resetDistrictForm() {
+      document.getElementById('districtForm').reset();
+      document.getElementById('districtFormId').value = '';
+      document.getElementById('districtFormCity').value = 'Lagos';
+      document.getElementById('districtFormLinkType').value = 'all';
+      currentDistrictChecks = [];
+      renderDistrictChecks();
+    }
+
+    // ── District Checks ────────────────────────────────────
+    function addDistrictCheck() {
+      const input = document.getElementById('districtCheckInput');
+      const val = input.value.trim();
+      if (val && !currentDistrictChecks.includes(val)) {
+        currentDistrictChecks.push(val);
+        renderDistrictChecks();
+      }
+      input.value = '';
+      input.focus();
+    }
+
+    function removeDistrictCheck(idx) {
+      currentDistrictChecks.splice(idx, 1);
+      renderDistrictChecks();
+    }
+
+    function renderDistrictChecks() {
+      document.getElementById('districtCheckTags').innerHTML = currentDistrictChecks.map((c, i) => `
+        <span class="check-tag">${c} <button onclick="removeDistrictCheck(${i})">&times;</button></span>
+      `).join('');
+    }
+
+    document.getElementById('districtCheckInput').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); addDistrictCheck(); }
+    });
+
+    // ── Save District ──────────────────────────────────────
+    async function saveDistrict() {
+      const name = document.getElementById('districtFormName').value.trim();
+      const city = document.getElementById('districtFormCity').value;
+
+      if (!name) {
+        showToast('Please fill in the district name.', 'error');
+        return;
+      }
+
+      const districtData = {
+        name,
+        city,
+        description: document.getElementById('districtFormDescription').value.trim(),
+        linkType: document.getElementById('districtFormLinkType').value,
+        image: document.getElementById('districtFormImage').value.trim(),
+        checks: currentDistrictChecks
+      };
+
+      const isEdit = districtEditId !== null;
+      const url = isEdit ? `${DISTRICTS_API}/${districtEditId}` : DISTRICTS_API;
+      const method = isEdit ? 'PUT' : 'POST';
+
+      try {
+        showLoading(true);
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(districtData)
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          showToast(isEdit ? 'District updated!' : 'District created!', 'success');
+          closeDistrictModal();
+          await loadDistrictsData();
+        } else {
+          showToast(data.message || 'Failed to save district.', 'error');
+        }
+      } catch (err) {
+        showToast('Network error. Is the server running?', 'error');
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    // ── Delete Listing ─────────────────────────────────────
+    function confirmDelete(id, title) {
+      deleteTargetId = id;
+      deleteTargetType = 'listing';
+      document.getElementById('confirmTitle').textContent = 'Delete this listing?';
+      document.getElementById('confirmMsg').textContent = `"${title}" will be permanently removed.`;
+      document.getElementById('confirmDialog').classList.add('active');
+    }
+
+    // ── Delete District ────────────────────────────────────
+    function confirmDeleteDistrict(id, name) {
+      deleteTargetId = id;
+      deleteTargetType = 'district';
+      document.getElementById('confirmTitle').textContent = 'Delete this district?';
+      document.getElementById('confirmMsg').textContent = `"${name}" will be permanently removed.`;
+      document.getElementById('confirmDialog').classList.add('active');
+    }
+
+    function closeConfirm() {
+      document.getElementById('confirmDialog').classList.remove('active');
+      deleteTargetId = null;
+      deleteTargetType = 'listing';
+    }
+
+    document.getElementById('confirmDeleteBtn').addEventListener('click', async () => {
+      if (!deleteTargetId) return;
+
+      if (deleteTargetType === 'district') {
+        try {
+          showLoading(true);
+          const res = await fetch(`${DISTRICTS_API}/${deleteTargetId}`, { method: 'DELETE' });
+          const data = await res.json();
+          if (data.success) {
+            showToast(data.message || 'District deleted.', 'success');
+            closeConfirm();
+            await loadDistrictsData();
+          } else {
+            showToast(data.message || 'Failed to delete district.', 'error');
+          }
+        } catch (err) {
+          showToast('Network error.', 'error');
+        } finally {
+          showLoading(false);
+        }
+      } else {
+        try {
+          showLoading(true);
+          const res = await fetch(`${API}/${deleteTargetId}`, { method: 'DELETE' });
+          const data = await res.json();
+          if (data.success) {
+            showToast(data.message, 'success');
+            closeConfirm();
+            await loadData();
+          } else {
+            showToast(data.message || 'Failed to delete.', 'error');
+          }
+        } catch (err) {
+          showToast('Network error.', 'error');
+        } finally {
+          showLoading(false);
+        }
+      }
+    });
+
+    // ── Loading ────────────────────────────────────────────
+    function showLoading(on) {
+      document.getElementById('loadingOverlay').classList.toggle('active', on);
+    }
+
+    // ── Init ───────────────────────────────────────────────
+    loadData();
+
+    // Close modal on overlay click
+    document.getElementById('listingModal').addEventListener('click', function(e) {
+      if (e.target === this) closeModal();
+    });
+    document.getElementById('districtModal').addEventListener('click', function(e) {
+      if (e.target === this) closeDistrictModal();
+    });
+    document.getElementById('confirmDialog').addEventListener('click', function(e) {
+      if (e.target === this) closeConfirm();
+    });
+
+    // Close modal on Escape
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        if (document.getElementById('listingModal').classList.contains('active')) closeModal();
+        if (document.getElementById('districtModal').classList.contains('active')) closeDistrictModal();
+        if (document.getElementById('confirmDialog').classList.contains('active')) closeConfirm();
+      }
+    });
+  </script>
+</body>
+</html>

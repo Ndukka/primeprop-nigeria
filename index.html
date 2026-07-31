@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrimeProp Nigeria — Discover Spaces That Feel Like Home</title>
+    <meta name="description" content="Nigeria's trusted property marketplace. Find handpicked properties for rent, sale and land across Lagos, Abuja, and beyond.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="home.css">
+</head>
+<body>
+
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <div class="container">
+        <!-- Header (shared across all pages) -->
+        <header>
+            <a href="index.html" class="logo">
+                <div class="logo-icon"><i class="fa-solid fa-building"></i></div>
+                <div class="logo-text">
+                    <span class="prime">PrimeProp</span>
+                    <span class="ng">Nigeria</span>
+                </div>
+            </a>
+            <nav>
+                <a href="index.html" class="active">Home</a>
+                <a href="properties.html">Listings</a>
+                <a href="properties-rent.html">Rent</a>
+                <a href="properties-sale.html">Buy</a>
+                <a href="properties-land.html">Land</a>
+                <a href="areas.html">Area Guides</a>
+            </nav>
+            <a href="properties.html" class="btn btn-primary">Browse Properties</a>
+        </header>
+
+        <main id="main-content">
+            <!-- Hero -->
+            <section class="home-hero">
+                <div class="hero-trusted">
+                    <span class="avatars">
+                        <img src="https://randomuser.me/api/portraits/women/44.jpg" alt="">
+                        <img src="https://randomuser.me/api/portraits/men/32.jpg" alt="">
+                        <img src="https://randomuser.me/api/portraits/women/68.jpg" alt="">
+                    </span>
+                    Trusted by 25K+
+                </div>
+
+                <div class="home-hero-inner">
+                    <h1>Discover Spaces<br>That Feel Like Home</h1>
+                    <p>Find handpicked properties across Lagos and Abuja that match your lifestyle and budget.</p>
+                </div>
+
+                <form class="home-search" action="properties.html" method="get">
+                    <div class="search-field">
+                        <label for="location">Location</label>
+                        <select id="location" name="location">
+                            <option>Lekki, Lagos</option>
+                            <option>Ikoyi, Lagos</option>
+                            <option>Ikeja GRA, Lagos</option>
+                            <option>Wuse 2, Abuja</option>
+                        </select>
+                    </div>
+                    <div class="search-field">
+                        <label for="type">Property Type</label>
+                        <select id="type" name="type">
+                            <option>Any Type</option>
+                            <option>Apartment / Flat</option>
+                            <option>Duplex</option>
+                            <option>Terraced House</option>
+                            <option>Land / Plot</option>
+                        </select>
+                    </div>
+                    <div class="search-field">
+                        <label for="price">Price Range</label>
+                        <select id="price" name="price">
+                            <option>₦500k - ₦5M</option>
+                            <option>₦5M - ₦20M</option>
+                            <option>₦20M - ₦100M</option>
+                            <option>₦100M+</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="search-btn"><i class="fa-solid fa-magnifying-glass"></i> Search</button>
+                </form>
+            </section>
+
+            <!-- Features -->
+            <section class="home-features">
+                <div class="feature-item">
+                    <span class="feature-icon"><i class="fa-solid fa-house-circle-check"></i></span>
+                    <div>
+                        <h3>Verified Properties</h3>
+                        <p>All properties are verified for your peace of mind.</p>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon"><i class="fa-solid fa-shield-halved"></i></span>
+                    <div>
+                        <h3>Safe &amp; Secure</h3>
+                        <p>Your safety is our priority in every transaction.</p>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon"><i class="fa-solid fa-headset"></i></span>
+                    <div>
+                        <h3>24/7 Support</h3>
+                        <p>Our team is here to help you anytime, anywhere.</p>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></span>
+                    <div>
+                        <h3>Best Price Guarantee</h3>
+                        <p>Get the best deals at the best prices.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Why choose us -->
+            <section class="home-why">
+                <div class="why-text">
+                    <span class="overline">Why Choose PrimeProp</span>
+                    <h2>More Than Just<br>A Property</h2>
+                    <p>We offer more than just spaces. We deliver experiences that fit your life and future.</p>
+                    <ul class="check-list">
+                        <li><i class="fa-solid fa-circle-check"></i> Wide range of premium rental options</li>
+                        <li><i class="fa-solid fa-circle-check"></i> Flexible rent terms &amp; easy agreements</li>
+                        <li><i class="fa-solid fa-circle-check"></i> Personalized recommendations</li>
+                        <li><i class="fa-solid fa-circle-check"></i> Trusted by thousands of happy clients</li>
+                    </ul>
+                    <a href="areas.html" class="btn btn-primary">Learn More</a>
+                </div>
+                <div class="why-img">
+                    <img src="https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1200&q=80" alt="Bright modern living room">
+                </div>
+            </section>
+
+            <!-- Featured Properties (dynamic from API) -->
+            <section class="home-featured">
+                <div class="featured-head">
+                    <h2>Featured Properties</h2>
+                    <a href="properties.html" class="view-all">View All Properties <i class="fa-solid fa-arrow-right"></i></a>
+                </div>
+                <div class="home-cards" id="featuredCards">
+                    <p style="text-align:center;color:var(--text-muted);padding:40px;">Loading featured properties…</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Footer (shared across all pages) -->
+    <footer>
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-brand">
+                    <a href="index.html" class="logo" style="color: white;">
+                        <div class="logo-icon"><i class="fa-solid fa-building"></i></div>
+                        <div class="logo-text">
+                            <span class="prime">PrimeProp</span>
+                            <span class="ng" style="color: #94a3b8;">Nigeria</span>
+                        </div>
+                    </a>
+                    <p>Nigeria's trusted property marketplace. Search, compare, and connect with property listers using complete cost and availability information.</p>
+                </div>
+                <div class="footer-col">
+                    <h4>Browse</h4>
+                    <ul>
+                        <li><a href="properties-rent.html">For rent</a></li>
+                        <li><a href="properties-sale.html">For sale</a></li>
+                        <li><a href="properties-land.html">Land</a></li>
+                        <li><a href="areas.html">Area guides</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Marketplace</h4>
+                    <ul>
+                        <li><a href="properties.html">All listings</a></li>
+                        <li><a href="#">Saved properties</a></li>
+                        <li><a href="#">Compare</a></li>
+                        <li><a href="#">List a property</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Account</h4>
+                    <ul>
+                        <li><a href="#">Sign in</a></li>
+                        <li><a href="#">Get started</a></li>
+                        <li><a href="#">Organization</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Help</h4>
+                    <ul>
+                        <li><a href="#">How it works</a></li>
+                        <li><a href="#">Safety checklist</a></li>
+                        <li><a href="#">Report an issue</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="footer-safety">
+                <p><strong>⚠ Before you pay:</strong> Confirm the lister, property, documents, availability, and every fee independently.</p>
+                <a href="#">Review the inspection checklist &rarr;</a>
+            </div>
+
+            <div class="footer-bottom">
+                <div>&copy; 2026 PrimeProp Nigeria. All rights reserved.</div>
+                <div class="footer-bottom-links">
+                    <a href="#">Privacy policy</a>
+                    <a href="#">Terms of service</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/app.js"></script>
+    <script>
+        // Homepage: load featured properties into the home-cards grid
+        async function loadHomeFeatured() {
+            const container = document.getElementById('featuredCards');
+            if (!container) return;
+            try {
+                const res = await fetch('/api/listings?featured=true');
+                const data = await res.json();
+                const featured = (data.data || []).slice(0, 3);
+                if (featured.length === 0) {
+                    container.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:40px;">No featured properties at the moment.</p>';
+                    return;
+                }
+                container.innerHTML = featured.map(f => {
+                    const img = (f.images && f.images.length > 0) ? f.images[0] : '';
+                    const badgeClass = (f.badge || '').toLowerCase().replace(/\s/g, '-');
+                    return `
+                    <article class="home-card">
+                        <a href="listing-detail.html?id=${f.id}" class="hc-img">
+                            <img src="${img}" alt="${f.title}" onerror="this.style.display='none';this.parentElement.style.background='linear-gradient(135deg, #e2e8f0 0%, #f1f5f9 100%)'">
+                            ${f.badge ? '<span class="badge b-' + badgeClass + '">' + f.badge + '</span>' : ''}
+                        </a>
+                        <div class="hc-body">
+                            <h3><a href="listing-detail.html?id=${f.id}">${f.title}</a></h3>
+                            <div class="hc-location"><i class="fa-solid fa-location-dot"></i> ${f.location}</div>
+                            <div class="hc-foot">
+                                <div class="hc-price">₦${f.price.toLocaleString()}${f.priceUnit ? ' <small>' + f.priceUnit + '</small>' : ''}</div>
+                                <span class="hc-fav"><i class="fa-regular fa-heart"></i></span>
+                            </div>
+                        </div>
+                    </article>`;
+                }).join('');
+            } catch (err) {
+                container.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:40px;">Could not load featured properties.</p>';
+            }
+        }
+        loadHomeFeatured();
+    </script>
+</body>
+</html>

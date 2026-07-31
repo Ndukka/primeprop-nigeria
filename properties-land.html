@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Land for Sale — PrimeProp Nigeria</title>
+    <meta name="description" content="Find land and development plots across Nigeria. Compare plots by location, size, price, access, and title documents on PrimeProp Nigeria.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <div class="container">
+        <header>
+            <a href="index.html" class="logo">
+                <div class="logo-icon"><i class="fa-solid fa-building"></i></div>
+                <div class="logo-text">
+                    <span class="prime">PrimeProp</span>
+                    <span class="ng">Nigeria</span>
+                </div>
+            </a>
+            <nav>
+                <a href="index.html">Home</a>
+                <a href="properties.html">Listings</a>
+                <a href="properties-rent.html">Rent</a>
+                <a href="properties-sale.html">Buy</a>
+                <a href="properties-land.html" class="active">Land</a>
+                <a href="areas.html">Area Guides</a>
+            </nav>
+            <a href="properties.html" class="btn btn-primary">Browse All</a>
+        </header>
+
+        <main id="main-content">
+            <!-- Page Banner -->
+            <section class="page-banner">
+                <h1>Land and development opportunities</h1>
+                <p>Read the site, access, and documents together. Compare plots by location, size, asking price, intended use, physical access, boundaries, and the records that still require independent review.</p>
+                <a href="#land-listings" class="btn btn-outline" style="margin-top: 16px;">Search land listings &darr;</a>
+                <div class="hero-stats" style="margin-top: 24px;">
+                    <div class="hero-stat"><strong>Plot details</strong><span>Site & size</span></div>
+                    <div class="hero-stat"><strong>Access route</strong><span>Road survey</span></div>
+                    <div class="hero-stat"><strong>Boundary</strong><span>Access confirmed</span></div>
+                    <div class="hero-stat"><strong>Planning</strong><span>Use & records</span></div>
+                </div>
+                <div class="boundary-notice-box" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin-top: 20px; display: flex; align-items: flex-start; gap: 12px;">
+                    <i class="fa-solid fa-location-pin" style="color: var(--dark); margin-top: 3px;"></i>
+                    <p style="font-size: 0.88rem; color: var(--heading);"><strong>A pin on a map is not a boundary:</strong> Confirm the exact site, survey information, legal access, planning constraints, title history, and the authority of the person marketing it.</p>
+                </div>
+            </section>
+
+            <!-- Browse Collections -->
+            <div style="margin-bottom: 30px;">
+                <div style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; color: var(--dark); margin-bottom: 16px;">Browse every collection</div>
+                <div class="purpose-grid">
+                    <a href="properties-rent.html" class="purpose-card">
+                        <div class="card-icon"><i class="fa-solid fa-key"></i></div>
+                        <h3>Rent <i class="fa-solid fa-arrow-right"></i></h3>
+                        <p>Homes and apartments</p>
+                        <span class="count" data-type="rent">— listings</span>
+                    </a>
+                    <a href="properties-sale.html" class="purpose-card">
+                        <div class="card-icon"><i class="fa-solid fa-house-chimney"></i></div>
+                        <h3>Buy <i class="fa-solid fa-arrow-right"></i></h3>
+                        <p>Residential purchases</p>
+                        <span class="count" data-type="sale">— listings</span>
+                    </a>
+                    <a href="properties-land.html" class="purpose-card">
+                        <div class="card-icon"><i class="fa-solid fa-tree-city"></i></div>
+                        <h3>Land <i class="fa-solid fa-arrow-right"></i></h3>
+                        <p>Plots and sites</p>
+                        <span class="count" data-type="land">— listings</span>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Filter -->
+            <section class="filter-section" id="land-listings">
+                <h3>Search land listings</h3>
+                <p class="filter-subtitle">Narrow the site before reviewing the dossier.</p>
+                <div class="filter-grid">
+                    <div class="filter-field">
+                        <label>Property purpose</label>
+                        <select id="purposeSelect">
+                            <option value="land">Land</option>
+                            <option value="all">All types</option>
+                            <option value="rent">Rent</option>
+                            <option value="sale">Buy</option>
+                        </select>
+                    </div>
+                    <div class="filter-field">
+                        <label>Area or keyword</label>
+                        <input type="text" id="searchInput" placeholder="e.g. Epe, Ibeju-Lekki, Gwarinpa…">
+                    </div>
+                    <div class="filter-field">
+                        <label>Land type</label>
+                        <select id="typeSelect">
+                            <option value="all">Any type</option>
+                            <option value="land">Residential plot</option>
+                            <option value="land">Commercial plot</option>
+                        </select>
+                    </div>
+                    <div class="filter-field" style="display: flex; align-items: flex-end;">
+                        <div style="width:100%;">
+                            <label style="visibility:hidden;display:block;">Search</label>
+                            <button class="btn btn-primary" id="searchBtn" style="width:100%; justify-content:center;">Search Land</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="filter-actions-row">
+                    <div class="filter-tags">
+                        <span class="filter-tag-label">Size:</span>
+                        <button class="filter-tag-btn active" data-size="">Any</button>
+                        <button class="filter-tag-btn" data-size="300">300 SQM</button>
+                        <button class="filter-tag-btn" data-size="500">500 SQM</button>
+                        <button class="filter-tag-btn" data-size="1000">1000+ SQM</button>
+                    </div>
+                    <a href="#" id="clearSearch" class="clear-link">Clear search</a>
+                </div>
+            </section>
+
+            <!-- Results Header -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+                <div style="font-size: 0.95rem; font-weight: 700; color: var(--heading);" id="resultsCount">Loading…</div>
+                <select id="sortSelect" style="border: 1px solid var(--border); background: white; padding: 7px 14px; border-radius: var(--radius-sm); font-size: 0.85rem; font-weight: 500; color: var(--heading); font-family: 'Inter', sans-serif;">
+                    <option value="featured">Featured</option>
+                    <option value="price-asc">Price: low to high</option>
+                    <option value="price-desc">Price: high to low</option>
+                    <option value="newest">Newest first</option>
+                </select>
+            </div>
+
+            <!-- Cards Grid (dynamically rendered from API) -->
+            <div class="listings-grid" id="cardsGrid">
+                <div style="text-align:center;padding:60px;grid-column:1/-1;color:var(--text-muted);">
+                    <i class="fa-solid fa-spinner" style="font-size:2rem;animation:spin 0.8s linear infinite;"></i>
+                    <p style="margin-top:12px;">Loading listings…</p>
+                </div>
+            </div>
+            <div id="pagination"></div>
+
+            <!-- Site Dossier -->
+            <div class="section-header mt-40">
+                <span class="overline">Site dossier</span>
+                <h2>A land search centered on the site dossier.</h2>
+                <p>The Land view separates the physical plot from documentary claims so each can be checked before any payment.</p>
+            </div>
+            <div class="steps-grid">
+                <div class="step-card">
+                    <div class="step-number">01</div>
+                    <h3>Locate the exact site</h3>
+                    <p>Match the listing to the physical plot, beacons, and survey references.</p>
+                </div>
+                <div class="step-card">
+                    <div class="step-number">02</div>
+                    <h3>Review access</h3>
+                    <p>Confirm legal and practical entry, road condition, and surrounding use.</p>
+                </div>
+                <div class="step-card">
+                    <div class="step-number">03</div>
+                    <h3>Check intended use</h3>
+                    <p>Review planning, estate, environmental, and development constraints.</p>
+                </div>
+                <div class="step-card">
+                    <div class="step-number">04</div>
+                    <h3>Verify documents</h3>
+                    <p>Commission independent registry, legal, survey, and boundary checks.</p>
+                </div>
+            </div>
+            <div class="info-box">
+                <h3>Take to the site inspection</h3>
+                <p>Key items to verify on the ground:</p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px;">
+                    <div style="display: flex; align-items: center; gap: 8px; font-size: 0.88rem; color: var(--heading); background: var(--bg); padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border);"><i class="fa-solid fa-check" style="color:var(--green);"></i> Listing link and exact meeting point</div>
+                    <div style="display: flex; align-items: center; gap: 8px; font-size: 0.88rem; color: var(--heading); background: var(--bg); padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border);"><i class="fa-solid fa-check" style="color:var(--green);"></i> Survey reference and beacons</div>
+                    <div style="display: flex; align-items: center; gap: 8px; font-size: 0.88rem; color: var(--heading); background: var(--bg); padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border);"><i class="fa-solid fa-check" style="color:var(--green);"></i> Access, drainage, terrain notes</div>
+                    <div style="display: flex; align-items: center; gap: 8px; font-size: 0.88rem; color: var(--heading); background: var(--bg); padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border);"><i class="fa-solid fa-check" style="color:var(--green);"></i> Names & authority of presenters</div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-brand">
+                    <a href="index.html" class="logo" style="color: white;">
+                        <div class="logo-icon"><i class="fa-solid fa-building"></i></div>
+                        <div class="logo-text">
+                            <span class="prime">PrimeProp</span>
+                            <span class="ng" style="color: #94a3b8;">Nigeria</span>
+                        </div>
+                    </a>
+                    <p>Nigeria's trusted property marketplace. Search, compare, and connect with property listers using complete cost and availability information.</p>
+                </div>
+                <div class="footer-col">
+                    <h4>Browse</h4>
+                    <ul>
+                        <li><a href="properties-rent.html">For rent</a></li>
+                        <li><a href="properties-sale.html">For sale</a></li>
+                        <li><a href="properties-land.html">Land</a></li>
+                        <li><a href="areas.html">Area guides</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Marketplace</h4>
+                    <ul>
+                        <li><a href="properties.html">All listings</a></li>
+                        <li><a href="#">Saved properties</a></li>
+                        <li><a href="#">Compare</a></li>
+                        <li><a href="#">List a property</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Account</h4>
+                    <ul>
+                        <li><a href="#">Sign in</a></li>
+                        <li><a href="#">Get started</a></li>
+                        <li><a href="#">Organization</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Help</h4>
+                    <ul>
+                        <li><a href="#">How it works</a></li>
+                        <li><a href="#">Safety checklist</a></li>
+                        <li><a href="#">Report an issue</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-safety">
+                <p><strong>⚠ Before you pay:</strong> Confirm the lister, property, documents, availability, and every fee independently.</p>
+                <a href="#">Review the inspection checklist &rarr;</a>
+            </div>
+            <div class="footer-bottom">
+                <div>&copy; 2026 PrimeProp Nigeria. All rights reserved.</div>
+                <div class="footer-bottom-links">
+                    <a href="#">Privacy policy</a>
+                    <a href="#">Terms of service</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/app.js"></script>
+    <script>
+        // Initialize the land listings page — fetches from API, sets up search/filter/sort
+        setupListingPage('land');
+    </script>
+</body>
+</html>

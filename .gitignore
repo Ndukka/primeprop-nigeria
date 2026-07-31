@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+*.log
+worker/.wrangler/
+worker/dist/
+worker/node_modules/
+auth copy/
+data/
+tmp/

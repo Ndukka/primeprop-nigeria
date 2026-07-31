@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Properties for Sale — PrimeProp Nigeria</title>
+    <meta name="description" content="Buy residential properties in Nigeria. Compare asking prices, verify documents, and connect via WhatsApp on PrimeProp Nigeria.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <div class="container">
+        <header>
+            <a href="index.html" class="logo">
+                <div class="logo-icon"><i class="fa-solid fa-building"></i></div>
+                <div class="logo-text">
+                    <span class="prime">PrimeProp</span>
+                    <span class="ng">Nigeria</span>
+                </div>
+            </a>
+            <nav>
+                <a href="index.html">Home</a>
+                <a href="properties.html">Listings</a>
+                <a href="properties-rent.html">Rent</a>
+                <a href="properties-sale.html" class="active">Buy</a>
+                <a href="properties-land.html">Land</a>
+                <a href="areas.html">Area Guides</a>
+            </nav>
+            <a href="properties.html" class="btn btn-primary">Browse All</a>
+        </header>
+
+        <main id="main-content">
+            <!-- Page Banner -->
+            <section class="page-banner">
+                <h1>Residential properties for sale</h1>
+                <p>Buy with the property and the proof kept separate. Compare asking prices and property details while keeping legal review, physical inspection, authority checks, and transaction costs visible.</p>
+                <a href="#" class="btn btn-outline" style="margin-top: 16px;">Open buyer checklist &rarr;</a>
+                <div class="hero-stats" style="margin-top: 24px;">
+                    <div class="hero-stat"><strong>Asking amount</strong><span>Price disclosed</span></div>
+                    <div class="hero-stat"><strong>Independent review</strong><span>Checks required</span></div>
+                    <div class="hero-stat"><strong>Before commitment</strong><span>Verify terms</span></div>
+                    <div class="hero-stat"><strong>350+</strong><span>Sale listings</span></div>
+                </div>
+            </section>
+
+            <!-- Browse Collections -->
+            <div style="margin-bottom: 30px;">
+                <div style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; color: var(--dark); margin-bottom: 16px;">Browse every collection</div>
+                <div class="purpose-grid">
+                    <a href="properties-rent.html" class="purpose-card">
+                        <div class="card-icon"><i class="fa-solid fa-key"></i></div>
+                        <h3>Rent <i class="fa-solid fa-arrow-right"></i></h3>
+                        <p>Homes and apartments</p>
+                        <span class="count" data-type="rent">— listings</span>
+                    </a>
+                    <a href="properties-sale.html" class="purpose-card">
+                        <div class="card-icon"><i class="fa-solid fa-house-chimney"></i></div>
+                        <h3>Buy <i class="fa-solid fa-arrow-right"></i></h3>
+                        <p>Residential purchases</p>
+                        <span class="count" data-type="sale">— listings</span>
+                    </a>
+                    <a href="properties-land.html" class="purpose-card">
+                        <div class="card-icon"><i class="fa-solid fa-tree-city"></i></div>
+                        <h3>Land <i class="fa-solid fa-arrow-right"></i></h3>
+                        <p>Plots and sites</p>
+                        <span class="count" data-type="land">— listings</span>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Filter -->
+            <section class="filter-section">
+                <h3>Search properties for sale</h3>
+                <p class="filter-subtitle">Compare homes before moving into due diligence.</p>
+                <div class="filter-grid">
+                    <div class="filter-field">
+                        <label>Property purpose</label>
+                        <select id="purposeSelect">
+                            <option value="sale">Buy</option>
+                            <option value="rent">Rent</option>
+                            <option value="land">Land</option>
+                            <option value="shortlet">Short-let</option>
+                        </select>
+                    </div>
+                    <div class="filter-field">
+                        <label>Area or keyword</label>
+                        <input type="text" id="searchInput" placeholder="e.g. Ikoyi, Victoria Island, Maitama…">
+                    </div>
+                    <div class="filter-field">
+                        <label>Property type</label>
+                        <select id="typeSelect">
+                            <option value="all">Any type</option>
+                            <option value="apartment">Apartment / Flat</option>
+                            <option value="detached">Detached House</option>
+                            <option value="terraced">Terraced House</option>
+                            <option value="semi-detached">Semi-detached</option>
+                        </select>
+                    </div>
+                    <div class="filter-field" style="display: flex; align-items: flex-end;">
+                        <div style="width:100%;">
+                            <label style="visibility:hidden;display:block;">Search</label>
+                            <button class="btn btn-primary" id="searchBtn" style="width:100%; justify-content:center;">Search Sales</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="filter-actions-row">
+                    <div class="filter-tags">
+                        <span class="filter-tag-label">Bedrooms:</span>
+                        <button class="filter-tag-btn" data-bedrooms="">Any</button>
+                        <button class="filter-tag-btn" data-bedrooms="2">2</button>
+                        <button class="filter-tag-btn" data-bedrooms="3">3</button>
+                        <button class="filter-tag-btn active" data-bedrooms="4">4</button>
+                        <button class="filter-tag-btn" data-bedrooms="5">5+</button>
+                        <button class="btn btn-outline btn-sm" style="font-size:0.8rem;">More filters</button>
+                    </div>
+                    <a href="#" id="clearSearch" class="clear-link">Clear search</a>
+                </div>
+            </section>
+
+            <!-- Results Header -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+                <div style="font-size: 0.95rem; font-weight: 700; color: var(--heading);" id="resultsCount">Loading…</div>
+                <select id="sortSelect" style="border: 1px solid var(--border); background: white; padding: 7px 14px; border-radius: var(--radius-sm); font-size: 0.85rem; font-weight: 500; color: var(--heading); font-family: 'Inter', sans-serif;">
+                    <option value="featured">Featured</option>
+                    <option value="price-asc">Price: low to high</option>
+                    <option value="price-desc">Price: high to low</option>
+                    <option value="newest">Newest first</option>
+                </select>
+            </div>
+
+            <!-- Cards Grid (dynamically rendered from API) -->
+            <div class="listings-grid" id="cardsGrid">
+                <div style="text-align:center;padding:60px;grid-column:1/-1;color:var(--text-muted);">
+                    <i class="fa-solid fa-spinner" style="font-size:2rem;animation:spin 0.8s linear infinite;"></i>
+                    <p style="margin-top:12px;">Loading listings…</p>
+                </div>
+            </div>
+            <div id="pagination"></div>
+
+            <!-- Buyer Workbench -->
+            <div class="section-header mt-40">
+                <span class="overline">Buyer workbench</span>
+                <h2>A purchase path organized around due diligence.</h2>
+                <p>Move from comparison to inspection and document review without treating a marketplace listing as proof.</p>
+            </div>
+            <div class="steps-grid">
+                <div class="step-card">
+                    <div class="step-number">01</div>
+                    <h3>Compare total cost</h3>
+                    <p>Review the asking price together with disclosed and expected transaction costs.</p>
+                </div>
+                <div class="step-card">
+                    <div class="step-number">02</div>
+                    <h3>Verify authority</h3>
+                    <p>Confirm who owns the property and who is authorized to market it.</p>
+                </div>
+                <div class="step-card">
+                    <div class="step-number">03</div>
+                    <h3>Inspect condition</h3>
+                    <p>Arrange physical, valuation, and specialist checks as needed.</p>
+                </div>
+                <div class="step-card">
+                    <div class="step-number">04</div>
+                    <h3>Review documents</h3>
+                    <p>Use independent legal and professional support before payment or signature.</p>
+                </div>
+            </div>
+            <div class="info-box">
+                <h3>Buyer reminder: A listing is a starting point, not proof.</h3>
+                <p>Complete independent checks before payment, signature, or reliance on a document claim.</p>
+                <div class="alert-inline">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <span>Pause when the price, payee, documents, inspection access, or authority changes.</span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-brand">
+                    <a href="index.html" class="logo" style="color: white;">
+                        <div class="logo-icon"><i class="fa-solid fa-building"></i></div>
+                        <div class="logo-text">
+                            <span class="prime">PrimeProp</span>
+                            <span class="ng" style="color: #94a3b8;">Nigeria</span>
+                        </div>
+                    </a>
+                    <p>Nigeria's trusted property marketplace. Search, compare, and connect with property listers using complete cost and availability information.</p>
+                </div>
+                <div class="footer-col">
+                    <h4>Browse</h4>
+                    <ul>
+                        <li><a href="properties-rent.html">For rent</a></li>
+                        <li><a href="properties-sale.html">For sale</a></li>
+                        <li><a href="properties-land.html">Land</a></li>
+                        <li><a href="areas.html">Area guides</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Marketplace</h4>
+                    <ul>
+                        <li><a href="properties.html">All listings</a></li>
+                        <li><a href="#">Saved properties</a></li>
+                        <li><a href="#">Compare</a></li>
+                        <li><a href="#">List a property</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Account</h4>
+                    <ul>
+                        <li><a href="#">Sign in</a></li>
+                        <li><a href="#">Get started</a></li>
+                        <li><a href="#">Organization</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Help</h4>
+                    <ul>
+                        <li><a href="#">How it works</a></li>
+                        <li><a href="#">Safety checklist</a></li>
+                        <li><a href="#">Report an issue</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-safety">
+                <p><strong>⚠ Before you pay:</strong> Confirm the lister, property, documents, availability, and every fee independently.</p>
+                <a href="#">Review the inspection checklist &rarr;</a>
+            </div>
+            <div class="footer-bottom">
+                <div>&copy; 2026 PrimeProp Nigeria. All rights reserved.</div>
+                <div class="footer-bottom-links">
+                    <a href="#">Privacy policy</a>
+                    <a href="#">Terms of service</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/app.js"></script>
+    <script>
+        // Initialize the sale listings page — fetches from API, sets up search/filter/sort
+        setupListingPage('sale');
+    </script>
+</body>
+</html>

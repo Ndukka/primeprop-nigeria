@@ -1,0 +1,25 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "primeprop-worker"
+main = "src/index.ts"
+compatibility_date = "2025-03-01"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 Database
+[[d1_databases]]
+binding = "DB"
+database_name = "primeprop-db"
+database_id = "162aa04a-f169-43ea-a336-4365350dda4a"
+
+# R2 Bucket
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "primeprop-images"
+
+# Environment variables
+[vars]
+JWT_SECRET = "362df08b1f64e90de7ef38a439d671966e7de70909d8ee0af917bc6f6a81ee5a"
+ENVIRONMENT = "production"
+
+# Static assets
+[assets]
+directory = "../"

@@ -1,0 +1,497 @@
+/* ============================================================
+   PrimeProp Nigeria — Homepage sections
+   Scoped to index.html. Loads after styles.css and reuses its
+   variables so the homepage blends with the rest of the site.
+   ============================================================ */
+
+/* ---------- Hero ---------- */
+
+.home-hero {
+    position: relative;
+    margin-top: 20px;
+    min-height: 540px;
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    background:
+        linear-gradient(102deg, rgba(15, 23, 42, .92) 0%, rgba(15, 23, 42, .68) 34%, rgba(15, 23, 42, .30) 55%, rgba(15, 23, 42, .12) 78%, rgba(15, 23, 42, .38) 100%),
+        url("https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1600&q=80") center / cover no-repeat,
+        linear-gradient(135deg, #334155, #0f172a);
+}
+
+.home-hero-inner {
+    position: relative;
+    z-index: 2;
+    padding: 88px 60px 0;
+    max-width: 620px;
+}
+
+.home-hero-inner h1 {
+    font-size: 2.8rem;
+    font-weight: 700;
+    line-height: 1.14;
+    letter-spacing: -0.5px;
+    color: #ffffff;
+}
+
+.home-hero-inner p {
+    margin-top: 16px;
+    font-size: 1.02rem;
+    line-height: 1.6;
+    color: #cbd5e1;
+    max-width: 400px;
+}
+
+/* Trusted badge */
+
+.hero-trusted {
+    position: absolute;
+    top: 22px;
+    right: 26px;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(255, 255, 255, .94);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid var(--border-light);
+    border-radius: 999px;
+    padding: 7px 18px 7px 10px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--heading);
+    box-shadow: var(--shadow-md);
+}
+
+.avatars {
+    display: flex;
+}
+
+.avatars img {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    object-fit: cover;
+    background: #e2e8f0;
+}
+
+.avatars img + img {
+    margin-left: -10px;
+}
+
+/* Search bar */
+
+.home-search {
+    position: absolute;
+    left: 50%;
+    bottom: 26px;
+    transform: translateX(-50%);
+    z-index: 3;
+    display: flex;
+    align-items: stretch;
+    width: min(680px, calc(100% - 56px));
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    padding: 10px;
+    box-shadow: var(--shadow-lg);
+}
+
+.search-field {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 4px 14px;
+    min-width: 0;
+}
+
+.search-field + .search-field {
+    border-left: 1px solid var(--border-light);
+}
+
+.search-field label {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 3px;
+}
+
+.search-field select {
+    border: none;
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right center;
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--heading);
+    padding-right: 20px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.search-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: var(--dark);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    padding: 0 28px;
+    font-family: inherit;
+    font-size: 0.92rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-left: 8px;
+    transition: all var(--transition);
+}
+
+.search-btn:hover {
+    background: #1e293b;
+}
+
+/* ---------- Features ---------- */
+
+.home-features {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px;
+    padding: 46px 0 10px;
+}
+
+.feature-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+}
+
+.feature-icon {
+    flex: none;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 1.15rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--dark);
+    box-shadow: var(--shadow);
+}
+
+.feature-item h3 {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--heading);
+}
+
+.feature-item p {
+    margin-top: 5px;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    color: var(--text-muted);
+}
+
+/* ---------- Why choose us ---------- */
+
+.home-why {
+    display: grid;
+    grid-template-columns: 1fr 1.15fr;
+    gap: 52px;
+    align-items: center;
+    padding: 60px 0;
+}
+
+.why-text .overline {
+    display: inline-block;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    font-weight: 700;
+    color: var(--dark);
+}
+
+.why-text h2 {
+    margin-top: 8px;
+    font-size: 1.9rem;
+    font-weight: 700;
+    line-height: 1.22;
+    letter-spacing: -0.5px;
+    color: var(--heading);
+}
+
+.why-text > p {
+    margin-top: 14px;
+    font-size: 0.95rem;
+    line-height: 1.65;
+    color: var(--text-muted);
+    max-width: 420px;
+}
+
+.check-list {
+    list-style: none;
+    margin: 22px 0 30px;
+    display: grid;
+    gap: 12px;
+}
+
+.check-list li {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--heading);
+}
+
+.check-list i {
+    color: var(--green);
+    font-size: 1rem;
+}
+
+.why-img img {
+    width: 100%;
+    height: 390px;
+    object-fit: cover;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    background: linear-gradient(135deg, #e2e8f0 0%, #f1f5f9 100%);
+}
+
+/* ---------- Featured properties ---------- */
+
+.home-featured {
+    padding: 6px 0 10px;
+}
+
+.featured-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 22px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.featured-head h2 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    color: var(--heading);
+}
+
+.featured-head .view-all {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--heading);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: gap var(--transition);
+}
+
+.featured-head .view-all:hover {
+    gap: 10px;
+}
+
+.featured-head .view-all i {
+    font-size: 0.75rem;
+}
+
+.home-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+}
+
+.hc-img {
+    position: relative;
+    display: block;
+    height: 220px;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    background: linear-gradient(135deg, #e2e8f0 0%, #f1f5f9 100%);
+}
+
+.hc-img img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform .4s ease;
+}
+
+.home-card:hover .hc-img img {
+    transform: scale(1.05);
+}
+
+.badge {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    padding: 5px 13px;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #fff;
+}
+
+.b-featured { background: var(--dark); }
+.b-new      { background: var(--blue); }
+.b-hot      { background: var(--green); }
+
+.hc-body {
+    padding: 16px 4px 0;
+}
+
+.hc-body h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--heading);
+}
+
+.hc-location {
+    margin-top: 6px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.hc-location i {
+    font-size: 0.75rem;
+}
+
+.hc-foot {
+    margin-top: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.hc-price {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--heading);
+}
+
+.hc-price small {
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--text-muted);
+}
+
+.hc-fav {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    display: grid;
+    place-items: center;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    cursor: pointer;
+    box-shadow: var(--shadow);
+    transition: all var(--transition);
+}
+
+.hc-fav:hover {
+    color: var(--red);
+    border-color: var(--red);
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 1024px) {
+    .home-features {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .home-why {
+        grid-template-columns: 1fr;
+        gap: 32px;
+        padding: 48px 0;
+    }
+
+    .home-cards {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .home-hero-inner h1 {
+        font-size: 2.2rem;
+    }
+}
+
+@media (max-width: 640px) {
+    .home-hero {
+        min-height: 470px;
+    }
+
+    .home-hero-inner {
+        padding: 60px 24px 0;
+    }
+
+    .home-hero-inner h1 {
+        font-size: 1.8rem;
+    }
+
+    .hero-trusted {
+        top: 16px;
+        right: 16px;
+    }
+
+    .home-search {
+        position: relative;
+        left: auto;
+        bottom: auto;
+        transform: none;
+        width: calc(100% - 32px);
+        margin: -80px auto 0;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .search-field {
+        padding: 10px 14px;
+    }
+
+    .search-field + .search-field {
+        border-left: none;
+        border-top: 1px solid var(--border-light);
+    }
+
+    .search-btn {
+        margin: 6px 0 0;
+        padding: 13px;
+    }
+
+    .home-features,
+    .home-cards {
+        grid-template-columns: 1fr;
+    }
+
+    .home-features {
+        padding-top: 60px;
+    }
+
+    .why-img img {
+        height: 260px;
+    }
+}
