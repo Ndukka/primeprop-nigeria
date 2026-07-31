@@ -388,18 +388,19 @@ app.delete('/api/districts/:id', requireAuth, requireRole('admin'), async (c) =>
 
 // ── File Upload (single or multiple) ─────────────────────
 app.post('/api/images/upload', requireAuth, async (c) => {
-  const body = await c.req.parseBody();
-  
-  // Support multiple files: body.files[] or single body.file
+  const formData = await c.req.raw.formData();
   const files: File[] = [];
-  if (body.file) files.push(body.file as File);
-  if (body.files) {
-    const multi = Array.isArray(body.files) ? body.files : [body.files];
-    multi.forEach((f: any) => { if (f && typeof f === 'object' && f.name) files.push(f as File); });
+  
+  // Support both "file" (single) and "files" (multiple) field names
+  for (const key of ['files', 'file']) {
+    const entries = formData.getAll(key);
+    for (const entry of entries) {
+      if (entry && typeof entry === 'object' && 'name' in entry && 'size' in entry) files.push(entry as any);
+    }
   }
   
   if (files.length === 0) {
-    return c.json({ success: false, message: 'No file provided. Use "file" for single or "files" for multiple.' }, 400);
+    return c.json({ success: false, message: 'No file provided. Use "file" for single or "files" for multiple uploads.' }, 400);
   }
 
   const allowedTypes = [
