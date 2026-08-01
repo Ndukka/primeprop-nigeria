@@ -1,0 +1,10 @@
+node_modules/
+.git/
+worker/
+data/
+auth copy/
+package-lock.json
+.DS_Store
+*.log
+CLOUDFLARE_MIGRATION_PLAN.md
+API_GUIDE.md
