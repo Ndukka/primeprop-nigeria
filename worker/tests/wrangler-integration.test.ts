@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, rmSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { basename, resolve } from 'node:path';
 
 const PORT = 8789;
 const BASE = `http://127.0.0.1:${PORT}`;
 const WORKER_DIR = resolve(__dirname, '..');
+const DIST_DIR = resolve(WORKER_DIR, '..', 'dist-public');
 const STATE_DIR = resolve(WORKER_DIR, '.wrangler', 'integration-state');
 const WRANGLER_CLI = resolve(
   WORKER_DIR,
@@ -18,6 +19,16 @@ const WRANGLER_CLI = resolve(
   'wrangler.js',
 );
 const TEST_JWT_SECRET = 'primeprop-integration-only-secret-not-for-production';
+
+type AssetManifest = {
+  runtime: string;
+  assets: Record<string, string>;
+  pages: Array<{ relativePath: string; buildId: string }>;
+};
+
+const manifest = JSON.parse(
+  readFileSync(resolve(DIST_DIR, 'asset-manifest.json'), 'utf8'),
+) as AssetManifest;
 
 let devProcess: ChildProcess | undefined;
 
@@ -91,61 +102,84 @@ async function request(path: string, options: RequestInit = {}): Promise<Respons
   return fetch(`${BASE}${path}`, options);
 }
 
-describe('static asset and CSP delivery', () => {
-  it('serves the shared stylesheet', async () => {
-    const response = await request('/styles.css');
-    expect(response.status).toBe(200);
-    expect(response.headers.get('content-type')).toContain('text/css');
-    expect((await response.text()).length).toBeGreaterThan(1000);
+function cleanPagePath(relativePath: string): string {
+  if (relativePath === 'index.html') return '/';
+  return `/${basename(relativePath, '.html')}`;
+}
+
+describe('versioned static asset delivery', () => {
+  it('serves every hashed CSS and JavaScript asset in the manifest', async () => {
+    const urls = Object.entries(manifest.assets)
+      .filter(([source]) => /\.(?:css|js)$/.test(source))
+      .map(([, url]) => url);
+
+    for (const url of urls) {
+      const response = await request(url);
+      expect(response.status, url).toBe(200);
+      const contentType = response.headers.get('content-type') || '';
+      expect(contentType, url).toMatch(/text\/css|javascript|text\/plain/);
+      expect((await response.text()).length, url).toBeGreaterThan(20);
+    }
   });
 
-  it('serves the shared application script', async () => {
-    const response = await request('/js/app.js');
-    expect(response.status).toBe(200);
-    expect(response.headers.get('content-type')).toMatch(/javascript|text\/plain/);
-    expect(await response.text()).toContain('loadDistricts');
+  it('keeps revalidated stable aliases for old browser documents', async () => {
+    for (const path of ['/styles.css', '/js/app.js']) {
+      const response = await request(path);
+      expect(response.status, path).toBe(200);
+      expect((await response.text()).length, path).toBeGreaterThan(1000);
+    }
   });
 
-  it('serves the CSP compatibility assets without dynamic-code execution', async () => {
-    const [styleResponse, scriptResponse] = await Promise.all([
-      request('/csp-compat.css'),
-      request('/js/csp-events.js'),
-    ]);
-
-    expect(styleResponse.status).toBe(200);
-    expect(styleResponse.headers.get('content-type')).toContain('text/css');
-    expect(await styleResponse.text()).toContain('.pp-image-error');
-
-    expect(scriptResponse.status).toBe(200);
-    expect(scriptResponse.headers.get('content-type')).toMatch(/javascript|text\/plain/);
-    const script = await scriptResponse.text();
-    expect(script).toContain('ALLOWED_FUNCTIONS');
-    expect(script).not.toMatch(/\beval\s*\(/);
-    expect(script).not.toMatch(/new\s+Function\s*\(/);
+  it('does not serve the retired compatibility bridge', async () => {
+    for (const path of ['/csp-compat.css', '/js/csp-events.js']) {
+      const response = await request(path);
+      expect(response.status, path).toBe(404);
+    }
   });
+});
 
-  it('serves clean and explicit HTML routes with matching nonce CSP and bridge', async () => {
-    for (const path of ['/areas', '/areas.html']) {
+describe('strict CSP on every page', () => {
+  for (const page of manifest.pages) {
+    const path = cleanPagePath(page.relativePath);
+    it(`${path} serves one coherent strict asset revision`, async () => {
       const response = await request(path);
       expect(response.status).toBe(200);
+      expect(new URL(response.url).pathname).toBe(path);
 
       const csp = response.headers.get('content-security-policy') || '';
       const html = await response.text();
-      const nonceMatch = csp.match(/script-src 'nonce-([^']+)'/);
-      const nonce = nonceMatch?.[1] || '';
+      const nonce = csp.match(/script-src 'nonce-([^']+)'/)?.[1] || '';
 
       expect(nonce).toBeTruthy();
-      expect(html).toContain(`nonce="${nonce}"`);
-      expect(html).toContain('<link rel="stylesheet" href="/csp-compat.css">');
-      expect(html).toContain(`<script nonce="${nonce}" src="/js/csp-events.js" defer></script>`);
-      expect(html.match(/\/csp-compat\.css/g)).toHaveLength(1);
-      expect(html.match(/\/js\/csp-events\.js/g)).toHaveLength(1);
-      expect(csp).toContain("style-src-attr 'unsafe-inline'");
       expect(csp).toContain("script-src-attr 'none'");
-      expect(csp).toContain('https://cdnjs.cloudflare.com');
-      expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+      expect(csp).toContain("style-src-attr 'none'");
+      expect(csp).not.toMatch(/(?:script-src|style-src-attr)[^;]*'unsafe-inline'/);
       expect(response.headers.get('cache-control')).toContain('no-store');
       expect(response.headers.get('etag')).toBeNull();
+      expect(response.headers.get('last-modified')).toBeNull();
+
+      expect(html).toContain(`name="primeprop-build" content="${page.buildId}"`);
+      expect(html).toContain(`src="${manifest.runtime}"`);
+      expect(html).not.toMatch(/\sstyle\s*=/i);
+      expect(html).not.toMatch(/\son[a-z]+\s*=/i);
+      expect(html).not.toMatch(/<script\b(?![^>]*\bsrc=)[^>]*>/i);
+      expect(html).not.toMatch(/<style\b/i);
+
+      const localAssets = [...html.matchAll(/\b(?:href|src)=["'](\/assets\/[^"']+)["']/g)]
+        .map(match => match[1]);
+      expect(localAssets.length).toBeGreaterThan(0);
+      for (const assetUrl of localAssets) {
+        const asset = await request(assetUrl);
+        expect(asset.status, `${path} -> ${assetUrl}`).toBe(200);
+      }
+    });
+  }
+
+  it('redirects explicit HTML and trailing-slash variants to one canonical URL', async () => {
+    for (const path of ['/areas.html', '/areas/']) {
+      const response = await request(path, { redirect: 'manual' });
+      expect(response.status).toBe(307);
+      expect(response.headers.get('location')).toBe('/areas');
     }
   });
 });
@@ -194,8 +228,6 @@ describe('API and routing smoke tests', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'nobody@example.invalid' }),
     });
-
-    // Password recovery is fail-closed until the email provider is configured.
     expect(response.status).toBe(503);
     const body = await response.json() as { message: string };
     expect(body.message).toContain('temporarily unavailable');
