@@ -7,6 +7,7 @@
     "dev": "npm run build:public && wrangler dev",
     "deploy": "npm run build:public && wrangler deploy",
     "d1:migrate": "wrangler d1 migrations apply primeprop-db",
+    "verify:deployment": "node ./scripts/verify-deployment.mjs",
     "audit:cloudflare-data": "node ./scripts/audit-cloudflare-data.mjs",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:static && npm run test:worker",
