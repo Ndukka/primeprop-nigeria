@@ -144,7 +144,7 @@
     cancel.textContent = 'Cancel';
     cancel.addEventListener('click', closeProfileModal);
     const save = document.createElement('button');
-    save.type = 'submit';
+    save.type = 'button';
     save.className = 'btn btn-primary';
     save.id = 'profileSaveButton';
     save.textContent = 'Save Profile';
@@ -213,6 +213,7 @@
 
   async function saveProfile() {
     const saveButton = document.getElementById('profileSaveButton');
+    if (saveButton?.disabled) return;
     if (saveButton) saveButton.disabled = true;
     setProfileStatus('Saving…');
     try {
