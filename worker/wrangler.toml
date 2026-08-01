@@ -40,12 +40,13 @@ name = "RATE_LIMITER"
 class_name = "RateLimiter"
 
 # public/ is source. npm run build:public produces the only deployable bundle.
-# Local CSS and JavaScript are content-hashed and every page uses root-absolute
-# URLs, preventing normal navigation from mixing HTML and assets from different
-# Worker revisions.
+# HTML and dynamic routes still run through the Worker for nonce injection,
+# authentication, API handling, redirects, and security headers. Generated
+# content-hashed files under /assets/ are immutable and can be served directly
+# by Static Assets without consuming a Worker request for every CSS/JS fetch.
 [assets]
 binding = "ASSETS"
 directory = "../dist-public"
 not_found_handling = "none"
 html_handling = "drop-trailing-slash"
-run_worker_first = true
+run_worker_first = ["/*", "!/assets/*"]

@@ -202,11 +202,12 @@ describe('operator script safeguards', () => {
 });
 
 describe('Wrangler static-asset routing', () => {
-  it('deploys only dist-public with canonical clean URLs', () => {
+  it('deploys only dist-public with canonical clean URLs and bypasses immutable assets', () => {
     const toml = readFileSync(resolve(__dirname, '../wrangler.toml'), 'utf-8');
     expect(toml).toContain('directory = "../dist-public"');
     expect(toml).toContain('html_handling = "drop-trailing-slash"');
-    expect(toml).toContain('run_worker_first = true');
+    expect(toml).toContain('run_worker_first = ["/*", "!/assets/*"]');
+    expect(toml).not.toMatch(/^run_worker_first\s*=\s*true\s*$/m);
   });
 });
 
