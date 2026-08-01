@@ -1,6 +1,6 @@
 #:schema node_modules/wrangler/config-schema.json
 name = "primeprop-worker"
-main = "src/index.ts"
+main = "src/hardened-entry.ts"
 compatibility_date = "2025-03-01"
 compatibility_flags = ["nodejs_compat"]
 
@@ -15,10 +15,17 @@ database_id = "162aa04a-f169-43ea-a336-4365350dda4a"
 binding = "IMAGES"
 bucket_name = "primeprop-images"
 
-# Environment variables
+# Non-secret environment variables
 [vars]
 ENVIRONMENT = "production"
-# JWT_SECRET is set via `wrangler secret put JWT_SECRET` — NEVER committed to Git
+# Configure these deployment-specific values before enabling password recovery:
+# PUBLIC_APP_URL = "https://primeprop.ng"
+# PASSWORD_RESET_FROM = "PrimeProp Nigeria <security@primeprop.ng>"
+#
+# Secrets must be configured through Wrangler or Cloudflare Secrets Store:
+#   npx wrangler secret put JWT_SECRET
+#   npx wrangler secret put RESEND_API_KEY
+# Never place secret values in this file.
 
 # Durable Objects for rate limiting
 [[migrations]]
@@ -29,8 +36,8 @@ new_sqlite_classes = ["RateLimiter"]
 name = "RATE_LIMITER"
 class_name = "RateLimiter"
 
-# run_worker_first=true: Worker intercepts all requests, applies nonce CSP to HTML.
-# ASSETS.fetch() inside Worker bypasses the Worker — no loop risk.
+# Worker-first delivery lets the application inject a fresh CSP nonce into HTML
+# while serving all public files from the dedicated public/ directory.
 [assets]
 binding = "ASSETS"
 directory = "../public"
