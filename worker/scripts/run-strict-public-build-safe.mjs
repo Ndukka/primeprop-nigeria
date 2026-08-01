@@ -8,6 +8,15 @@ const workerDir = path.resolve(scriptDir, '..');
 const repositoryDir = path.resolve(workerDir, '..');
 const strictBuildPath = path.join(scriptDir, 'run-strict-public-build.mjs');
 
+const ICON_STYLE_REPLACEMENT = [
+  "icon.style.fontSize = '1.5rem';",
+  "          icon.style.color = '#64748b';",
+  "          icon.style.position = 'absolute';",
+  "          icon.style.top = '50%';",
+  "          icon.style.left = '50%';",
+  "          icon.style.transform = 'translate(-50%,-50%)';",
+].join('\n');
+
 const SOURCE_PATCHES = [
   {
     relativePath: 'public/login.html',
@@ -43,6 +52,10 @@ const SOURCE_PATCHES = [
           '      });',
         ].join('\n'),
       ],
+      [
+        "icon.style.cssText = 'font-size:1.5rem;color:#64748b;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)';",
+        ICON_STYLE_REPLACEMENT,
+      ],
     ],
   },
   {
@@ -55,6 +68,10 @@ const SOURCE_PATCHES = [
           "        this.style.display = 'none';",
           '      });',
         ].join('\n'),
+      ],
+      [
+        "icon.style.cssText = 'font-size:1.5rem;color:#64748b;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)';",
+        ICON_STYLE_REPLACEMENT,
       ],
     ],
   },
