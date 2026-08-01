@@ -36,16 +36,15 @@ BEGIN
   WHERE id = NEW.id;
 END;
 
--- Reject attempts to alter admin-owned trust fields or account-owned identity
--- on an agent listing. Profile propagation below is permitted because the new
--- identity values exactly match the current users row.
+-- Reject any noncanonical trust or identity values on an agent-owned listing.
+-- Canonical normalization and profile propagation remain permitted.
 CREATE TRIGGER IF NOT EXISTS trg_guard_agent_listing_managed_fields
 BEFORE UPDATE OF featured, verified, badge, agent_name, agent_role, agent_phone, agent_avatar ON listings
 WHEN OLD.created_by IN (SELECT id FROM users WHERE role = 'agent')
   AND (
-    COALESCE(NEW.featured, 0) <> COALESCE(OLD.featured, 0)
-    OR COALESCE(NEW.verified, 0) <> COALESCE(OLD.verified, 0)
-    OR COALESCE(NEW.badge, '') <> COALESCE(OLD.badge, '')
+    COALESCE(NEW.featured, 0) <> 0
+    OR COALESCE(NEW.verified, 0) <> 0
+    OR COALESCE(NEW.badge, '') <> ''
     OR COALESCE(NEW.agent_name, '') <> COALESCE((SELECT name FROM users WHERE id = OLD.created_by), '')
     OR COALESCE(NEW.agent_role, '') <> COALESCE(NULLIF((SELECT agent_title FROM users WHERE id = OLD.created_by), ''), 'Listing Agent')
     OR COALESCE(NEW.agent_phone, '') <> COALESCE((SELECT phone FROM users WHERE id = OLD.created_by), '')
