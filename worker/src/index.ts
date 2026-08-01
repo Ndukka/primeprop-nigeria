@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { authRoutes, requireAuth, requireRole } from './auth';
 import { safeJsonParse, isYouTube, rowToListing } from './utils';
+import { RateLimiter } from './rate-limiter';
 import type { D1Database, R2Bucket } from '@cloudflare/workers-types';
 
 type Bindings = {
@@ -9,7 +10,7 @@ type Bindings = {
   IMAGES: R2Bucket;
   JWT_SECRET: string;
   ENVIRONMENT: string;
-  RATE_LIMIT_KV?: KVNamespace;
+  RATE_LIMITER: DurableObjectNamespace<RateLimiter>;
 };
 
 type Variables = {
@@ -66,8 +67,9 @@ app.use('*', cors({
   maxAge: 86400,
 }));
 
-// ── Rate Limiting (API routes only, in-memory) ────────────
-const RATE_WINDOW = 60_000;
+// ── Rate Limiting (Durable Object backed) ────────────────
+// Uses a Durable Object for shared state across all Worker requests.
+// This fixes the in-memory Map issue where each request had its own isolate.
 const RATE_LIMITS: Record<string, number> = {
   'auth:login': 20,
   'auth:register': 10,
@@ -75,10 +77,11 @@ const RATE_LIMITS: Record<string, number> = {
   'api:read': 1000,
 };
 
-// Simple in-memory store (per-request, lightweight)
-const rateStore = new Map<string, { count: number; resetAt: number }>();
+// Rate limiting middleware — covers both /api/* and /auth/*
+app.use('/api/*', rateLimitMiddleware);
+app.use('/auth/*', rateLimitMiddleware);
 
-app.use('/api/*', async (c, next) => {
+async function rateLimitMiddleware(c: any, next: any) {
   const path = c.req.path;
   const method = c.req.method;
   
@@ -90,27 +93,22 @@ app.use('/api/*', async (c, next) => {
   const limit = RATE_LIMITS[limitKey] || 200;
   const ip = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown';
   const key = `${limitKey}:${ip}`;
-  const now = Date.now();
 
-  let entry = rateStore.get(key);
-  if (!entry || now > entry.resetAt) {
-    entry = { count: 1, resetAt: now + RATE_WINDOW };
-    rateStore.set(key, entry);
-  } else if (entry.count >= limit) {
-    return c.json({ success: false, message: 'Too many requests. Please try again later.' }, 429);
-  } else {
-    entry.count++;
-  }
-
-  // Cleanup old entries periodically (every 100 requests)
-  if (Math.random() < 0.01) {
-    for (const [k, v] of rateStore) {
-      if (now > v.resetAt) rateStore.delete(k);
-    }
+  // Get or create the RateLimiter Durable Object (idempotent by IP+key)
+  const doId = c.env.RATE_LIMITER.idFromName(key);
+  const stub = c.env.RATE_LIMITER.get(doId);
+  
+  // Call the DO to check the limit
+  const result = await stub.checkLimit(key, limit);
+  if (!result.allowed) {
+    return c.json({
+      success: false,
+      message: `Too many requests. Please try again in ${result.retryAfter} seconds.`
+    }, 429);
   }
 
   await next();
-});
+}
 
 // ── Input Validation Helpers ──────────────────────────────
 const MAX_STRING = 5000;
@@ -487,6 +485,22 @@ app.delete('/api/cities/:id', requireAuth, requireRole('admin'), async (c) => {
 // ── Auth Routes ───────────────────────────────────────────
 app.route('/auth', authRoutes);
 
-// ── Helpers ───────────────────────────────────────────────
+// ── Catch-all: 404 for unassigned API routes ─────────────
+// app.all fires ONLY when no other route matched (unlike app.use which is middleware)
+app.all('/api/*', (c) => {
+  return c.json({
+    success: false,
+    message: `Route not found: ${c.req.method} ${c.req.path}`
+  }, 404);
+});
 
+// ── Catch-all: 404 for unknown non-API routes ────────────
+// Static files are served by the [assets] binding before Hono, so this
+// only triggers for truly unknown routes (e.g., /nonexistent-page)
+app.notFound((c) => {
+  return c.json({ success: false, message: 'Not found' }, 404);
+});
+
+// ── Export ────────────────────────────────────────────────
 export default app;
+export { RateLimiter };

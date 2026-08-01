@@ -223,9 +223,9 @@
         const data = await res.json();
 
         if (data.success) {
-          
-          
-          
+          // Store token for session check on next visit (cookie handles actual auth)
+          localStorage.setItem('pp_token', data.data.token);
+          localStorage.setItem('pp_user', JSON.stringify(data.data.user));
           const role = data.data.user.role;
           window.location.href = role === 'admin' ? '/admin.html' : '/agent.html';
         } else {
