@@ -6,56 +6,101 @@ import { fileURLToPath } from 'node:url';
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const workerDir = path.resolve(scriptDir, '..');
 const repositoryDir = path.resolve(workerDir, '..');
-const loginPath = path.join(repositoryDir, 'public', 'login.html');
 const strictBuildPath = path.join(scriptDir, 'run-strict-public-build.mjs');
 
-const LOGIN_SOURCE_REPLACEMENTS = new Map([
-  [
-    "    function showSignup() { document.getElementById('loginCard').style.display = 'none'; document.getElementById('signupCard').style.display = 'block'; }",
-    [
-      '    function showSignup() {',
-      "      document.getElementById('loginCard').style.display = 'none';",
-      "      document.getElementById('signupCard').style.display = 'block';",
-      '    }',
-    ].join('\n'),
-  ],
-  [
-    "    function showLogin() { document.getElementById('signupCard').style.display = 'none'; document.getElementById('loginCard').style.display = 'block'; }",
-    [
-      '    function showLogin() {',
-      "      document.getElementById('signupCard').style.display = 'none';",
-      "      document.getElementById('loginCard').style.display = 'block';",
-      '    }',
-    ].join('\n'),
-  ],
-]);
+const SOURCE_PATCHES = [
+  {
+    relativePath: 'public/login.html',
+    replacements: [
+      [
+        "function showSignup() { document.getElementById('loginCard').style.display = 'none'; document.getElementById('signupCard').style.display = 'block'; }",
+        [
+          'function showSignup() {',
+          "      document.getElementById('loginCard').style.display = 'none';",
+          "      document.getElementById('signupCard').style.display = 'block';",
+          '    }',
+        ].join('\n'),
+      ],
+      [
+        "function showLogin() { document.getElementById('signupCard').style.display = 'none'; document.getElementById('loginCard').style.display = 'block'; }",
+        [
+          'function showLogin() {',
+          "      document.getElementById('signupCard').style.display = 'none';",
+          "      document.getElementById('loginCard').style.display = 'block';",
+          '    }',
+        ].join('\n'),
+      ],
+    ],
+  },
+  {
+    relativePath: 'public/admin.html',
+    replacements: [
+      [
+        "img.onerror = function() { this.style.display = 'none'; };",
+        [
+          "img.addEventListener('error', function() {",
+          "        this.style.display = 'none';",
+          '      });',
+        ].join('\n'),
+      ],
+    ],
+  },
+  {
+    relativePath: 'public/agent.html',
+    replacements: [
+      [
+        "img.onerror = function() { this.style.display = 'none'; };",
+        [
+          "img.addEventListener('error', function() {",
+          "        this.style.display = 'none';",
+          '      });',
+        ].join('\n'),
+      ],
+    ],
+  },
+];
 
-function prepareLoginSource(source) {
+function applyRequiredReplacements(source, relativePath, replacements) {
   let prepared = source;
 
-  for (const [original, replacement] of LOGIN_SOURCE_REPLACEMENTS) {
-    if (!prepared.includes(original)) {
-      throw new Error('Login source normalization target was not found; inspect public/login.html before building.');
+  for (const [original, replacement] of replacements) {
+    const firstIndex = prepared.indexOf(original);
+    const lastIndex = prepared.lastIndexOf(original);
+
+    if (firstIndex < 0) {
+      throw new Error(`${relativePath}: source normalization target was not found.`);
     }
+    if (firstIndex !== lastIndex) {
+      throw new Error(`${relativePath}: source normalization target is ambiguous.`);
+    }
+
     prepared = prepared.replace(original, replacement);
   }
 
   return prepared;
 }
 
-const originalLoginSource = await readFile(loginPath, 'utf8');
-const preparedLoginSource = prepareLoginSource(originalLoginSource);
+const originals = new Map();
 let result;
 
 try {
-  await writeFile(loginPath, preparedLoginSource, 'utf8');
+  for (const patch of SOURCE_PATCHES) {
+    const absolutePath = path.join(repositoryDir, patch.relativePath);
+    const original = await readFile(absolutePath, 'utf8');
+    const prepared = applyRequiredReplacements(original, patch.relativePath, patch.replacements);
+    originals.set(absolutePath, original);
+    await writeFile(absolutePath, prepared, 'utf8');
+  }
+
   result = spawnSync(process.execPath, [strictBuildPath], {
     cwd: workerDir,
     stdio: 'inherit',
     env: process.env,
   });
 } finally {
-  await writeFile(loginPath, originalLoginSource, 'utf8');
+  for (const [absolutePath, original] of originals) {
+    await writeFile(absolutePath, original, 'utf8');
+  }
 }
 
 if (result?.error) throw result.error;
