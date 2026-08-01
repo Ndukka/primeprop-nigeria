@@ -20,6 +20,26 @@ async function walk(directory) {
   return files.sort();
 }
 
+function syntaxContext(error, source, relative) {
+  const stack = error instanceof Error ? String(error.stack || '') : '';
+  const escaped = relative.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const location = stack.match(new RegExp(`${escaped}:(\\d+)(?::(\\d+))?`));
+  const lineNumber = Number(location?.[1] || 0);
+  const columnNumber = Number(location?.[2] || 0);
+  const lines = source.split('\n');
+  const start = Math.max(0, lineNumber - 2);
+  const end = Math.min(lines.length, lineNumber + 1);
+
+  return {
+    line: lineNumber || null,
+    column: columnNumber || null,
+    excerpt: lineNumber > 0
+      ? lines.slice(start, end).map((line, index) => `${start + index + 1}: ${line}`).join('\n')
+      : source.slice(0, 600),
+    stack: stack.split('\n').slice(0, 5).join('\n'),
+  };
+}
+
 const files = await walk(outputDir);
 const failures = [];
 
@@ -33,6 +53,7 @@ for (const file of files) {
     failures.push({
       file: relative,
       message: error instanceof Error ? error.message : String(error),
+      ...syntaxContext(error, source, relative),
     });
   }
 }
