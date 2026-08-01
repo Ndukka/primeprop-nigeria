@@ -19,6 +19,15 @@
   const elementProperties = new WeakMap();
   let ruleSequence = 0;
 
+  const STATIC_RULES = [
+    '.pp-image-error{position:relative;min-height:180px;background:linear-gradient(135deg,#e2e8f0 0%,#f1f5f9 100%)}',
+    '.pp-image-fallback{position:absolute;inset:50% auto auto 50%;transform:translate(-50%,-50%);color:#94a3b8;font-size:3rem;pointer-events:none}',
+    '.fav-btn.is-saved i{color:#dc2626}',
+  ];
+  if (sheet) {
+    for (const rule of STATIC_RULES) sheet.insertRule(rule, sheet.cssRules.length);
+  }
+
   function cssPropertyName(property) {
     return String(property)
       .replace(/[A-Z]/g, match => `-${match.toLowerCase()}`)
