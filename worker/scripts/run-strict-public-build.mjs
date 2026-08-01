@@ -83,6 +83,18 @@ function replaceLegacySpinnerMarkup(source) {
     );
 }
 
+function replaceLegacyBackLinks(source) {
+  return source
+    .replace(
+      /\bhref=(['"])javascript:history\.back\(\)\1/gi,
+      'href="/properties" data-pp-action="back"',
+    )
+    .replace(
+      /\bhref=\\(['"])javascript:history\.back\(\)\\\1/gi,
+      'href=\\"/properties\\" data-pp-action=\\"back\\"',
+    );
+}
+
 function removeLegacySpinnerCss(source) {
   return source
     .replace(/\.spinner\s*\{[^}]*\}/gi, '')
@@ -90,7 +102,7 @@ function removeLegacySpinnerCss(source) {
 }
 
 function transformLegacyLoadingHtml(source) {
-  let output = replaceLegacySpinnerMarkup(source);
+  let output = replaceLegacyBackLinks(replaceLegacySpinnerMarkup(source));
   output = removeLegacySpinnerCss(output);
 
   if (output.includes('pp-loading-skeleton') && !output.includes('.pp-loading-skeleton{')) {
@@ -101,7 +113,9 @@ function transformLegacyLoadingHtml(source) {
 
 function transformScriptSource(source) {
   return convertEventPropertyAssignments(
-    convertGeneratedStyleAttributes(replaceLegacySpinnerMarkup(source)),
+    convertGeneratedStyleAttributes(
+      replaceLegacyBackLinks(replaceLegacySpinnerMarkup(source)),
+    ),
   );
 }
 
