@@ -14,6 +14,7 @@ export default defineConfig({
       'tests/security-headers.test.ts',
       'tests/navigation-regressions.test.ts',
       'tests/dashboard-client-regressions.test.ts',
+      'tests/cloudflare-usage-regressions.test.ts',
     ],
     testTimeout: 30000,
   },
