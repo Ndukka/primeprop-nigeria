@@ -5,14 +5,9 @@ import { resolve } from 'node:path';
 const WORKER_DIR = resolve(__dirname, '..');
 const REPOSITORY_DIR = resolve(WORKER_DIR, '..');
 const DIST_DIR = resolve(REPOSITORY_DIR, 'dist-public');
-const PUBLIC_DIR = resolve(REPOSITORY_DIR, 'public');
 
 function readDist(relativePath: string): string {
   return readFileSync(resolve(DIST_DIR, relativePath), 'utf8');
-}
-
-function readPublic(relativePath: string): string {
-  return readFileSync(resolve(PUBLIC_DIR, relativePath), 'utf8');
 }
 
 type Manifest = {
@@ -102,11 +97,12 @@ describe('dashboard database and session regressions', () => {
     expect(app).toContain("String(activeBedrooms).endsWith('+')");
   });
 
-  it('never substitutes the retired dummy WhatsApp number', () => {
-    const app = generatedSource('js/app.js');
-    const source = readPublic('js/app.js');
+  it('replaces retired dummy contact actions without exposing private phone data', () => {
+    const catalogue = generatedSource('js/catalog-data.js');
 
-    expect(app).not.toContain('2348000000000');
-    expect(source).toContain("listing.agent?.phone || '2348000000000'");
+    expect(catalogue).toContain("const RETIRED_CONTACT = '2348000000000'");
+    expect(catalogue).toContain('neutralizeRetiredContacts');
+    expect(catalogue).toContain("label.textContent = 'Contact unavailable'");
+    expect(catalogue).toContain('anchor.replaceWith(unavailableContactLabel())');
   });
 });
