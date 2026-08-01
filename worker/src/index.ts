@@ -66,56 +66,47 @@ app.use('*', cors({
   maxAge: 86400,
 }));
 
-// ── Rate Limiting ─────────────────────────────────────────
-const RATE_WINDOW = 60_000; // 1 minute
+// ── Rate Limiting (API routes only, in-memory) ────────────
+const RATE_WINDOW = 60_000;
 const RATE_LIMITS: Record<string, number> = {
-  'auth:login': 30,
+  'auth:login': 20,
   'auth:register': 10,
   'api:write': 200,
   'api:read': 1000,
-  'default': 300,
 };
 
-app.use('*', async (c, next) => {
+// Simple in-memory store (per-request, lightweight)
+const rateStore = new Map<string, { count: number; resetAt: number }>();
+
+app.use('/api/*', async (c, next) => {
   const path = c.req.path;
   const method = c.req.method;
   
-  // Determine rate limit key
-  let limitKey = 'default';
+  let limitKey = 'api:read';
   if (path === '/auth/login' && method === 'POST') limitKey = 'auth:login';
   else if (path === '/auth/register' && method === 'POST') limitKey = 'auth:register';
   else if (['POST', 'PUT', 'DELETE'].includes(method)) limitKey = 'api:write';
-  else if (method === 'GET') limitKey = 'api:read';
 
-  const limit = RATE_LIMITS[limitKey] || 120;
-
-  // Get client IP
+  const limit = RATE_LIMITS[limitKey] || 200;
   const ip = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown';
-  const key = `rate:${limitKey}:${ip}`;
+  const key = `${limitKey}:${ip}`;
+  const now = Date.now();
 
-  // Use D1 for rate limiting (simple approach)
-  try {
-    const now = Date.now();
-    const windowStart = now - RATE_WINDOW;
-    
-    // Clean old entries
-    await c.env.DB.prepare('DELETE FROM rate_limits WHERE expires_at < ?').bind(now).run();
-    
-    // Count recent requests
-    const count = await c.env.DB.prepare(
-      'SELECT COUNT(*) as c FROM rate_limits WHERE key = ? AND created_at > ?'
-    ).bind(key, windowStart).first<{c: number}>();
-    
-    if ((count?.c || 0) >= limit) {
-      return c.json({ success: false, message: 'Too many requests. Please try again later.' }, 429);
+  let entry = rateStore.get(key);
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 1, resetAt: now + RATE_WINDOW };
+    rateStore.set(key, entry);
+  } else if (entry.count >= limit) {
+    return c.json({ success: false, message: 'Too many requests. Please try again later.' }, 429);
+  } else {
+    entry.count++;
+  }
+
+  // Cleanup old entries periodically (every 100 requests)
+  if (Math.random() < 0.01) {
+    for (const [k, v] of rateStore) {
+      if (now > v.resetAt) rateStore.delete(k);
     }
-
-    // Record this request
-    await c.env.DB.prepare(
-      'INSERT INTO rate_limits (key, created_at, expires_at) VALUES (?, ?, ?)'
-    ).bind(key, now, now + RATE_WINDOW * 2).run();
-  } catch {
-    // If rate limiting DB fails, allow the request
   }
 
   await next();
