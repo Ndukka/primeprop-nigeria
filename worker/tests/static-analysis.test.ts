@@ -81,13 +81,15 @@ describe('generated deployment bundle', () => {
   });
 
   for (const file of htmlFiles) {
-    it(`${file} contains no inline CSS, inline scripts, event attributes, or spinner markup`, () => {
+    it(`${file} contains no inline CSS, inline scripts, event attributes, spinner markup, or JavaScript URLs`, () => {
       const html = readDist(file);
       expect(html).not.toMatch(/\sstyle\s*=/i);
       expect(html).not.toMatch(/\son[a-z]+\s*=/i);
       expect(html).not.toMatch(/<style\b/i);
       expect(html).not.toMatch(/<script\b(?![^>]*\bsrc=)[^>]*>/i);
       expect(html).not.toMatch(/class=["'][^"']*(?:spinner|fa-spinner)[^"']*["']/i);
+      expect(html).not.toMatch(/\b(?:href|src)=["'][^"']*javascript:/i);
+      expect(html).not.toContain('/javascript:history.back()');
       expect(html).toContain('name="primeprop-build"');
       expect(html).toMatch(/<script[^>]+src="\/assets\/js\/strict-runtime\.[a-f0-9]{12}\.js"/);
     });
@@ -120,12 +122,14 @@ describe('generated deployment bundle', () => {
     });
   }
 
-  it('includes the shared skeleton navigation runtime', () => {
+  it('includes the shared skeleton navigation runtime and safe back action', () => {
     const runtime = readSource('js/strict-runtime.js');
     expect(runtime).toContain('pp-page-skeleton');
     expect(runtime).toContain('scheduleNavigation');
     expect(runtime).toContain('window.PrimePropLoading');
     expect(runtime).toContain('prefers-reduced-motion');
+    expect(runtime).toContain("action === 'back'");
+    expect(runtime).toContain("target.closest('button,input,select,textarea");
   });
 
   it('does not deploy the temporary compatibility bridge', () => {
