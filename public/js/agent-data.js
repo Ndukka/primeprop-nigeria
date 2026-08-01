@@ -61,7 +61,9 @@
     }
     if (attempt < 100) {
       setTimeout(() => refreshAfterAuthenticatedBootstrap(attempt + 1), 50);
+      return;
     }
+    window.location.replace('/login?reason=session-expired');
   }
 
   refreshAfterAuthenticatedBootstrap();
