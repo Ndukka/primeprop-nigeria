@@ -6,9 +6,13 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "d1:migrate": "wrangler d1 migrations apply primeprop-db",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:static && npm run test:worker",
+    "test:static": "vitest run --config vitest.config.ts",
+    "test:worker": "vitest run --config vitest.worker.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:all": "npm run typecheck && npm run test && npm run test:integration",
+    "test:watch": "vitest --config vitest.config.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
