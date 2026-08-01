@@ -1,24 +1,38 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { rmSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const PORT = 8789;
 const BASE = `http://127.0.0.1:${PORT}`;
 const WORKER_DIR = resolve(__dirname, '..');
 const STATE_DIR = resolve(WORKER_DIR, '.wrangler', 'integration-state');
+const WRANGLER_CLI = resolve(
+  WORKER_DIR,
+  'node_modules',
+  '@cloudflare',
+  'vitest-pool-workers',
+  'node_modules',
+  'wrangler',
+  'bin',
+  'wrangler.js',
+);
 const TEST_JWT_SECRET = 'primeprop-integration-only-secret-not-for-production';
 
 let devProcess: ChildProcess | undefined;
 
 function wranglerArgs(...args: string[]): string[] {
-  return ['wrangler', ...args];
+  return [WRANGLER_CLI, ...args];
 }
 
 beforeAll(async () => {
+  if (!existsSync(WRANGLER_CLI)) {
+    throw new Error(`Locked Wrangler CLI was not found at ${WRANGLER_CLI}`);
+  }
+
   rmSync(STATE_DIR, { recursive: true, force: true });
 
-  execFileSync('npx', wranglerArgs(
+  execFileSync(process.execPath, wranglerArgs(
     'd1', 'migrations', 'apply', 'primeprop-db',
     '--local',
     '--persist-to', STATE_DIR,
@@ -28,7 +42,7 @@ beforeAll(async () => {
     env: { ...process.env, CI: '1' },
   });
 
-  devProcess = spawn('npx', wranglerArgs(
+  devProcess = spawn(process.execPath, wranglerArgs(
     'dev',
     '--port', String(PORT),
     '--local',
@@ -114,7 +128,7 @@ describe('API and routing smoke tests', () => {
   it('returns stats from a migrated local D1 database', async () => {
     const response = await request('/api/stats');
     expect(response.status).toBe(200);
-    const body = await response.json<{ success: boolean; data: { total: number } }>();
+    const body = await response.json() as { success: boolean; data: { total: number } };
     expect(body.success).toBe(true);
     expect(body.data).toHaveProperty('total');
   });
@@ -122,7 +136,7 @@ describe('API and routing smoke tests', () => {
   it('returns mandatory pagination', async () => {
     const response = await request('/api/listings?page=1&limit=10');
     expect(response.status).toBe(200);
-    const body = await response.json<{ page: number; limit: number; data: unknown[] }>();
+    const body = await response.json() as { page: number; limit: number; data: unknown[] };
     expect(body.page).toBe(1);
     expect(body.limit).toBe(10);
     expect(Array.isArray(body.data)).toBe(true);
@@ -131,7 +145,7 @@ describe('API and routing smoke tests', () => {
   it('returns a generic API 404', async () => {
     const response = await request('/api/nonexistent');
     expect(response.status).toBe(404);
-    const body = await response.json<{ message: string }>();
+    const body = await response.json() as { message: string };
     expect(body.message).toBe('Not found');
     expect(body.message).not.toContain('/api/nonexistent');
   });
