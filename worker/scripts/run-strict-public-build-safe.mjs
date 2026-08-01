@@ -80,6 +80,20 @@ const SOURCE_PATCHES = [
     expandCssText: true,
   },
   {
+    relativePath: 'public/js/app.js',
+    replacements: [
+      [
+        "activeBedrooms === '5+'",
+        "String(activeBedrooms).endsWith('+')",
+      ],
+      [
+        'l.bedrooms >= 5',
+        'l.bedrooms >= parseInt(activeBedrooms)',
+      ],
+    ],
+    expandCssText: false,
+  },
+  {
     relativePath: 'public/js/strict-runtime.js',
     replacements: [
       [
@@ -116,6 +130,47 @@ function normalizeQuotedRootAbsolutePageReferences(source) {
       count += 1;
       return `${quote}${filename}`;
     });
+  }
+
+  return { prepared, count };
+}
+
+function injectClientRuntimes(source, relativePath) {
+  if (!relativePath.endsWith('.html')) return { prepared: source, count: 0 };
+
+  let prepared = source;
+  let count = 0;
+
+  if (!prepared.includes('js/client-data.js')) {
+    prepared = prepared.replace(
+      /<\/head>/i,
+      '  <script src="js/client-data.js"></script>\n</head>',
+    );
+    count += 1;
+  }
+
+  if (prepared.includes('js/app.js') && !prepared.includes('js/catalog-data.js')) {
+    prepared = prepared.replace(
+      /(<script\s+src=["'](?:\.\/)?js\/app\.js["'][^>]*><\/script>)/i,
+      '$1\n    <script src="js/catalog-data.js"></script>',
+    );
+    count += 1;
+  }
+
+  if (relativePath === 'public/admin.html' && !prepared.includes('js/admin-data.js')) {
+    prepared = prepared.replace(
+      /<\/body>/i,
+      '  <script src="js/admin-data.js"></script>\n</body>',
+    );
+    count += 1;
+  }
+
+  if (relativePath === 'public/agent.html' && !prepared.includes('js/agent-data.js')) {
+    prepared = prepared.replace(
+      /<\/body>/i,
+      '  <script src="js/agent-data.js"></script>\n</body>',
+    );
+    count += 1;
   }
 
   return { prepared, count };
@@ -166,10 +221,10 @@ function applyRequiredReplacements(source, relativePath, replacements) {
     const lastIndex = prepared.lastIndexOf(original);
 
     if (firstIndex < 0) {
-      throw new Error(`${relativePath}: source normalization target was not found.`);
+      throw new Error(`${relativePath}: source normalization target was not found: ${JSON.stringify(original)}`);
     }
     if (firstIndex !== lastIndex) {
-      throw new Error(`${relativePath}: source normalization target is ambiguous.`);
+      throw new Error(`${relativePath}: source normalization target is ambiguous: ${JSON.stringify(original)}`);
     }
 
     prepared = prepared.replace(original, replacement);
@@ -199,6 +254,7 @@ const appliedPatches = new Set();
 let result;
 let expandedCssTextAssignments = 0;
 let normalizedPageReferences = 0;
+let injectedClientRuntimes = 0;
 
 try {
   const sourceFiles = await walkTextFiles(publicDir);
@@ -224,6 +280,10 @@ try {
     prepared = pageReferenceNormalization.prepared;
     normalizedPageReferences += pageReferenceNormalization.count;
 
+    const runtimeInjection = injectClientRuntimes(prepared, relativePath);
+    prepared = runtimeInjection.prepared;
+    injectedClientRuntimes += runtimeInjection.count;
+
     if (prepared === original) continue;
     originals.set(absolutePath, original);
     await writeFile(absolutePath, prepared, 'utf8');
@@ -240,7 +300,9 @@ try {
     files: originals.size,
     expandedCssTextAssignments,
     normalizedPageReferences,
+    injectedClientRuntimes,
     navigationOverlayDisabled: true,
+    dashboardDataFlowAudited: true,
   }));
 
   result = spawnSync(process.execPath, [strictBuildPath], {
