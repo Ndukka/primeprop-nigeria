@@ -5,6 +5,7 @@ import { extname, resolve } from 'node:path';
 const SOURCE_PUBLIC = resolve(__dirname, '../../public');
 const DIST_PUBLIC = resolve(__dirname, '../../dist-public');
 const WORKER_SRC = resolve(__dirname, '../src');
+const WORKER_SCRIPTS = resolve(__dirname, '../scripts');
 
 function readSource(filename: string): string {
   return readFileSync(resolve(SOURCE_PUBLIC, filename), 'utf-8');
@@ -16,6 +17,10 @@ function readDist(filename: string): string {
 
 function readSrc(filename: string): string {
   return readFileSync(resolve(WORKER_SRC, filename), 'utf-8');
+}
+
+function readScript(filename: string): string {
+  return readFileSync(resolve(WORKER_SCRIPTS, filename), 'utf-8');
 }
 
 function walk(directory: string, base = directory): string[] {
@@ -53,6 +58,7 @@ describe('generated deployment bundle', () => {
   const files = walk(DIST_PUBLIC);
   const htmlFiles = files.filter(file => extname(file) === '.html');
   const javascriptFiles = files.filter(file => extname(file) === '.js');
+  const cssFiles = files.filter(file => extname(file) === '.css');
 
   it('builds every public page and a manifest', () => {
     expect(htmlFiles).toEqual(expect.arrayContaining([
@@ -75,12 +81,13 @@ describe('generated deployment bundle', () => {
   });
 
   for (const file of htmlFiles) {
-    it(`${file} contains no inline CSS, inline scripts, or event attributes`, () => {
+    it(`${file} contains no inline CSS, inline scripts, event attributes, or spinner markup`, () => {
       const html = readDist(file);
       expect(html).not.toMatch(/\sstyle\s*=/i);
       expect(html).not.toMatch(/\son[a-z]+\s*=/i);
       expect(html).not.toMatch(/<style\b/i);
       expect(html).not.toMatch(/<script\b(?![^>]*\bsrc=)[^>]*>/i);
+      expect(html).not.toMatch(/class=["'][^"']*\bspinner\b/i);
       expect(html).toContain('name="primeprop-build"');
       expect(html).toMatch(/<script[^>]+src="\/assets\/js\/strict-runtime\.[a-f0-9]{12}\.js"/);
     });
@@ -105,6 +112,22 @@ describe('generated deployment bundle', () => {
     });
   }
 
+  for (const file of cssFiles) {
+    it(`${file} contains no retired circular spinner animation`, () => {
+      const css = readDist(file);
+      expect(css).not.toMatch(/\.spinner\s*\{/i);
+      expect(css).not.toMatch(/@keyframes\s+spin\b/i);
+    });
+  }
+
+  it('includes the shared skeleton navigation runtime', () => {
+    const runtime = readSource('js/strict-runtime.js');
+    expect(runtime).toContain('pp-page-skeleton');
+    expect(runtime).toContain('scheduleNavigation');
+    expect(runtime).toContain("window.PrimePropLoading");
+    expect(runtime).toContain('prefers-reduced-motion');
+  });
+
   it('does not deploy the temporary compatibility bridge', () => {
     expect(files).not.toContain('csp-compat.css');
     expect(files).not.toContain('js/csp-events.js');
@@ -120,6 +143,25 @@ describe('generated deployment bundle', () => {
       if (!/\.(?:css|js)$/.test(source)) continue;
       expect(output).toMatch(/^\/assets\/.+\.[a-f0-9]{12}\.(?:css|js)$/);
     }
+  });
+});
+
+describe('operator script safeguards', () => {
+  it('verifies generated assets by content hash instead of arbitrary size', () => {
+    const verifier = readScript('verify-deployment.mjs');
+    expect(verifier).toContain("createHash('sha256')");
+    expect(verifier).toContain('Content hash mismatch');
+    expect(verifier).not.toContain('body.length < 20');
+    expect(verifier).not.toContain('Asset body is unexpectedly small');
+  });
+
+  it('rejects placeholder credentials and supports temporary administrator login', () => {
+    const audit = readScript('audit-cloudflare-data.mjs');
+    expect(audit).toContain('PRIMEPROP_ADMIN_EMAIL');
+    expect(audit).toContain('PRIMEPROP_ADMIN_PASSWORD');
+    expect(audit).toContain('isPlaceholder');
+    expect(audit).toContain("`${baseUrl}/auth/login`");
+    expect(audit).not.toMatch(/console\.(?:log|error)\([^\n]*token/i);
   });
 });
 
