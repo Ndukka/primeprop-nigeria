@@ -26,6 +26,22 @@ const ALLOWED_APPLICATION_ORIGINS = new Set([
   'https://primeprop-worker.ndupsn.workers.dev',
   'https://primeprop.ng',
 ]);
+const CLEAN_PAGE_PATHS = new Set([
+  '/',
+  '/properties',
+  '/properties-rent',
+  '/properties-sale',
+  '/properties-land',
+  '/areas',
+  '/listing-detail',
+  '/listing-detail-1',
+  '/listing-detail-2',
+  '/listing-detail-3',
+  '/login',
+  '/admin',
+  '/agent',
+  '/reset-password',
+]);
 
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -53,6 +69,55 @@ function normalizeApplicationPath(request: Request): Request {
   if (normalized === url.pathname) return request;
   url.pathname = normalized;
   return new Request(url.toString(), request);
+}
+
+function canonicalPageRedirect(request: Request): Response | null {
+  if (!['GET', 'HEAD'].includes(request.method)) return null;
+  const url = new URL(request.url);
+  let canonical = url.pathname;
+
+  if (canonical === '/index.html' || canonical === '/index/') {
+    canonical = '/';
+  } else if (canonical.endsWith('.html')) {
+    canonical = canonical.slice(0, -5) || '/';
+  } else if (canonical.length > 1 && canonical.endsWith('/')) {
+    canonical = canonical.replace(/\/+$/, '');
+  }
+
+  if (canonical === url.pathname || !CLEAN_PAGE_PATHS.has(canonical)) return null;
+  const location = `${canonical}${url.search}`;
+  return new Response(null, {
+    status: 307,
+    headers: {
+      Location: location,
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
+}
+
+function withAssetCachePolicy(path: string, response: Response): Response {
+  if (!response.ok) return response;
+  const contentType = response.headers.get('Content-Type') || '';
+  if (contentType.includes('text/html')) return response;
+
+  const headers = new Headers(response.headers);
+  const isHashedAsset = /^\/assets\/.+\.[a-f0-9]{12}\.(?:css|js)$/i.test(path);
+  const isStableAlias = /^\/(?:styles|home)\.css$/i.test(path)
+    || /^\/js\/(?:app|strict-runtime)\.js$/i.test(path);
+
+  if (isHashedAsset) {
+    headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+  } else if (isStableAlias) {
+    headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
+  }
+
+  headers.set('Vary', 'Accept-Encoding');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 function isValidGoogleRedirectUri(value: string | undefined, env: Bindings): boolean {
@@ -170,6 +235,9 @@ async function handleStorageAudit(request: Request, env: Bindings): Promise<Resp
 export default {
   async fetch(request: Request, env: Bindings, ctx: ExecutionContext): Promise<Response> {
     request = normalizeApplicationPath(request);
+    const canonicalRedirect = canonicalPageRedirect(request);
+    if (canonicalRedirect) return canonicalRedirect;
+
     const path = new URL(request.url).pathname;
 
     if (path === '/auth/security/storage-audit') {
@@ -186,11 +254,11 @@ export default {
       }, 503);
     }
 
-    const response = await hardenedWorker.fetch(request, env, ctx);
+    let response = await hardenedWorker.fetch(request, env, ctx);
     if (path === '/auth/google/callback') {
-      return sanitizeOAuthError(response);
+      response = await sanitizeOAuthError(response);
     }
-    return response;
+    return withAssetCachePolicy(path, response);
   },
 };
 
