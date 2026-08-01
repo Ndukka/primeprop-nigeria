@@ -80,11 +80,14 @@ describe('dashboard database and session regressions', () => {
     expect(agent).toContain('price_unit:');
   });
 
-  it('routes non-admin sessions away from the admin dashboard', () => {
+  it('routes wrong-role and expired sessions away from dashboards', () => {
     const admin = generatedSource('js/admin-data.js');
+    const agent = generatedSource('js/agent-data.js');
 
     expect(admin).toContain("AUTH_USER.role !== 'admin'");
     expect(admin).toContain("window.location.replace('/agent')");
+    expect(admin).toContain("window.location.replace('/login?reason=session-expired')");
+    expect(agent).toContain("window.location.replace('/login?reason=session-expired')");
   });
 
   it('removes unsupported catalogue filters and implements four-or-more bedrooms', () => {
