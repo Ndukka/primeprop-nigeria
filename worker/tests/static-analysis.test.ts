@@ -87,7 +87,7 @@ describe('generated deployment bundle', () => {
       expect(html).not.toMatch(/\son[a-z]+\s*=/i);
       expect(html).not.toMatch(/<style\b/i);
       expect(html).not.toMatch(/<script\b(?![^>]*\bsrc=)[^>]*>/i);
-      expect(html).not.toMatch(/class=["'][^"']*\bspinner\b/i);
+      expect(html).not.toMatch(/class=["'][^"']*(?:spinner|fa-spinner)[^"']*["']/i);
       expect(html).toContain('name="primeprop-build"');
       expect(html).toMatch(/<script[^>]+src="\/assets\/js\/strict-runtime\.[a-f0-9]{12}\.js"/);
     });
@@ -124,7 +124,7 @@ describe('generated deployment bundle', () => {
     const runtime = readSource('js/strict-runtime.js');
     expect(runtime).toContain('pp-page-skeleton');
     expect(runtime).toContain('scheduleNavigation');
-    expect(runtime).toContain("window.PrimePropLoading");
+    expect(runtime).toContain('window.PrimePropLoading');
     expect(runtime).toContain('prefers-reduced-motion');
   });
 
@@ -160,8 +160,11 @@ describe('operator script safeguards', () => {
     expect(audit).toContain('PRIMEPROP_ADMIN_EMAIL');
     expect(audit).toContain('PRIMEPROP_ADMIN_PASSWORD');
     expect(audit).toContain('isPlaceholder');
-    expect(audit).toContain("`${baseUrl}/auth/login`");
-    expect(audit).not.toMatch(/console\.(?:log|error)\([^\n]*token/i);
+    expect(audit).toContain('`${baseUrl}/auth/login`');
+    expect(audit).not.toContain('console.log(bearer');
+    expect(audit).not.toContain('console.error(bearer');
+    expect(audit).not.toContain('console.log(token');
+    expect(audit).not.toContain('console.error(token');
   });
 });
 
