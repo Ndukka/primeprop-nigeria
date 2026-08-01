@@ -83,23 +83,12 @@ const SOURCE_PATCHES = [
     relativePath: 'public/js/app.js',
     replacements: [
       [
-        [
-          "    if (activeBedrooms === '5+') {",
-          '      filtered = filtered.filter(l => l.bedrooms >= 5);',
-          '    } else {',
-          '      const n = parseInt(activeBedrooms);',
-          '      if (!isNaN(n)) filtered = filtered.filter(l => l.bedrooms === n);',
-          '    }',
-        ].join('\n'),
-        [
-          "    if (String(activeBedrooms).endsWith('+')) {",
-          '      const minimum = parseInt(activeBedrooms);',
-          '      if (!isNaN(minimum)) filtered = filtered.filter(l => l.bedrooms >= minimum);',
-          '    } else {',
-          '      const n = parseInt(activeBedrooms);',
-          '      if (!isNaN(n)) filtered = filtered.filter(l => l.bedrooms === n);',
-          '    }',
-        ].join('\n'),
+        "activeBedrooms === '5+'",
+        "String(activeBedrooms).endsWith('+')",
+      ],
+      [
+        'l.bedrooms >= 5',
+        'l.bedrooms >= parseInt(activeBedrooms)',
       ],
       [
         "listing.agent?.phone || '2348000000000'",
@@ -236,10 +225,10 @@ function applyRequiredReplacements(source, relativePath, replacements) {
     const lastIndex = prepared.lastIndexOf(original);
 
     if (firstIndex < 0) {
-      throw new Error(`${relativePath}: source normalization target was not found.`);
+      throw new Error(`${relativePath}: source normalization target was not found: ${JSON.stringify(original)}`);
     }
     if (firstIndex !== lastIndex) {
-      throw new Error(`${relativePath}: source normalization target is ambiguous.`);
+      throw new Error(`${relativePath}: source normalization target is ambiguous: ${JSON.stringify(original)}`);
     }
 
     prepared = prepared.replace(original, replacement);
