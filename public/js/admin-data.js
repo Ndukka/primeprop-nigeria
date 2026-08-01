@@ -135,4 +135,18 @@
       if (role) role.value = 'agent';
     };
   }
+
+  function refreshAfterAuthenticatedBootstrap(attempt = 0) {
+    if (AUTH_USER) {
+      window.loadData();
+      if (activeTab === 'districts') window.loadDistrictsData();
+      if (activeTab === 'users') window.loadUsersData();
+      return;
+    }
+    if (attempt < 100) {
+      setTimeout(() => refreshAfterAuthenticatedBootstrap(attempt + 1), 50);
+    }
+  }
+
+  refreshAfterAuthenticatedBootstrap();
 })();
