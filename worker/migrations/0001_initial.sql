@@ -59,10 +59,11 @@ CREATE TABLE IF NOT EXISTS districts (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
--- Seed admin user (password: admin123 — CHANGE AFTER FIRST LOGIN)
--- bcrypt hash of 'admin123'
-INSERT OR IGNORE INTO users (email, password_hash, name, role) 
-VALUES ('admin@primeprop.ng', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'Admin', 'admin');
+-- NOTE: No admin user is seeded by this migration.
+-- Bootstrap the admin account separately after deployment using one of:
+--   1. wrangler CLI:  wrangler d1 execute primeprop-db --command "INSERT INTO users ..."
+--   2. A one-time setup script or admin registration endpoint
+-- Storing embedded credentials in migrations is a security risk (PP-SEC-007).
 
 -- Seed demo districts
 INSERT OR IGNORE INTO districts (name, city, description, checks, image, link_type) VALUES

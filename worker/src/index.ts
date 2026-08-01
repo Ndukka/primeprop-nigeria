@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { authRoutes, requireAuth, requireRole } from './auth';
+import { authRoutes, requireAuth, requireRole, csrfProtection } from './auth';
 import { safeJsonParse, isYouTube, rowToListing } from './utils';
 import { RateLimiter } from './rate-limiter';
 import type { D1Database, R2Bucket } from '@cloudflare/workers-types';
@@ -24,7 +24,7 @@ app.use('*', async (c, next) => {
   await next();
   c.res.headers.set('X-Content-Type-Options', 'nosniff');
   c.res.headers.set('X-Frame-Options', 'DENY');
-  c.res.headers.set('X-XSS-Protection', '1; mode=block');
+  // PP-SEC-042: X-XSS-Protection is obsolete — removed. Rely on strict CSP instead.
   c.res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   c.res.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
   c.res.headers.set('Content-Security-Policy', 
@@ -63,7 +63,7 @@ app.use('*', cors({
     return ALLOWED_ORIGINS[0]; // Default to production URL
   },
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
   maxAge: 86400,
 }));
 
@@ -80,6 +80,11 @@ const RATE_LIMITS: Record<string, number> = {
 // Rate limiting middleware — covers both /api/* and /auth/*
 app.use('/api/*', rateLimitMiddleware);
 app.use('/auth/*', rateLimitMiddleware);
+
+// CSRF protection — validates X-CSRF-Token header on state-changing requests
+// Middleware skips GET/HEAD/OPTIONS and non-browser API clients automatically
+app.use('/api/*', csrfProtection);
+app.use('/auth/*', csrfProtection);
 
 async function rateLimitMiddleware(c: any, next: any) {
   const path = c.req.path;
@@ -230,11 +235,16 @@ app.post('/api/listings', requireAuth, async (c) => {
   const amenities = Array.isArray(body.amenities) ? body.amenities.slice(0, MAX_ARRAY).map((a: any) => sanitizeString(a, 200)) : [];
   const images = Array.isArray(body.images) ? body.images.slice(0, MAX_ARRAY).map((i: any) => sanitizeString(i, 1000)) : [];
 
-  // Agent fields: agents can only set themselves, admins can set anyone
-  const agentName = sanitizeString(body.agent_name || body.agent?.name, 200) || user.name;
-  const agentRole = sanitizeString(body.agent_role || body.agent?.role, 200);
-  const agentPhone = sanitizeString(body.agent_phone || body.agent?.phone, 50);
-  const agentAvatar = sanitizeString(body.agent_avatar || body.agent?.avatar, 1000);
+  // PP-SEC-008: Agents cannot self-verify, self-feature, or impersonate other agents.
+  // Admins can set trust/moderator fields; agents always get defaults derived from their user record.
+  const isAdmin = user.role === 'admin';
+  const featured = isAdmin ? (body.featured ? 1 : 0) : 0;
+  const verified = isAdmin ? (body.verified ? 1 : 0) : 0;
+  const badge = isAdmin ? sanitizeString(body.badge, 50) : '';
+  const agentName = isAdmin ? sanitizeString(body.agent_name || body.agent?.name, 200) || user.name : user.name;
+  const agentRole = isAdmin ? sanitizeString(body.agent_role || body.agent?.role, 200) : user.role;
+  const agentPhone = isAdmin ? sanitizeString(body.agent_phone || body.agent?.phone, 50) : '';
+  const agentAvatar = isAdmin ? sanitizeString(body.agent_avatar || body.agent?.avatar, 1000) : '';
 
   const result = await c.env.DB.prepare(`
     INSERT INTO listings (title, type, property_type, price, price_unit, location, area, city, bedrooms, bathrooms, sqft, parking, description, amenities, images, availability, featured, verified, badge, agent_name, agent_role, agent_phone, agent_avatar, annual_rent, agency_fee, security_deposit, service_charge, created_by)
@@ -247,9 +257,7 @@ app.post('/api/listings', requireAuth, async (c) => {
     sanitizeString(body.description, 5000),
     JSON.stringify(amenities), JSON.stringify(images),
     sanitizeString(body.availability, 100) || 'Immediately',
-    body.featured ? 1 : 0,
-    body.verified ? 1 : 0,
-    sanitizeString(body.badge, 50),
+    featured, verified, badge,
     agentName, agentRole, agentPhone, agentAvatar,
     sanitizeNumber(body.annual_rent || body.moveInCosts?.annualRent) || null,
     sanitizeNumber(body.agency_fee || body.moveInCosts?.agencyFee) || null,
@@ -278,26 +286,38 @@ app.put('/api/listings/:id', requireAuth, async (c) => {
   const body = await c.req.json().catch(() => null);
   if (!body) return c.json({ success: false, message: 'Invalid JSON' }, 400);
 
+  // PP-SEC-008: Role-specific update allowlists.
+  // Agents can only update factual property content, NOT trust/moderation/identity fields.
+  const isAdmin = user.role === 'admin';
   const updates: Record<string, any> = {};
 
-  // Only allow specific fields to be updated (no mass assignment)
-  const stringFields: [string, number][] = [
+  // Fields ALL users can update (factual property data)
+  const commonStringFields: [string, number][] = [
     ['title', 200], ['type', 50], ['property_type', 100],
     ['price_unit', 50], ['location', 300], ['area', 100], ['city', 100],
-    ['description', 5000], ['availability', 100], ['badge', 50],
-    ['agent_name', 200], ['agent_role', 200], ['agent_phone', 50], ['agent_avatar', 1000],
+    ['description', 5000], ['availability', 100],
   ];
-  for (const [f, max] of stringFields) {
+  for (const [f, max] of commonStringFields) {
     if (body[f] !== undefined) updates[f] = sanitizeString(body[f], max);
+  }
+
+  // Admin-only fields: trust badges, moderation status, agent identity overrides
+  if (isAdmin) {
+    const adminStringFields: [string, number][] = [
+      ['badge', 50], ['agent_name', 200], ['agent_role', 200],
+      ['agent_phone', 50], ['agent_avatar', 1000],
+    ];
+    for (const [f, max] of adminStringFields) {
+      if (body[f] !== undefined) updates[f] = sanitizeString(body[f], max);
+    }
+    if (body.featured !== undefined) updates.featured = body.featured ? 1 : 0;
+    if (body.verified !== undefined) updates.verified = body.verified ? 1 : 0;
   }
 
   const numFields = ['price', 'bedrooms', 'bathrooms', 'sqft', 'parking', 'annual_rent', 'agency_fee', 'security_deposit', 'service_charge'];
   for (const f of numFields) {
     if (body[f] !== undefined) updates[f] = sanitizeNumber(body[f]);
   }
-
-  if (body.featured !== undefined) updates.featured = body.featured ? 1 : 0;
-  if (body.verified !== undefined) updates.verified = body.verified ? 1 : 0;
   if (body.amenities !== undefined) updates.amenities = JSON.stringify(
     (Array.isArray(body.amenities) ? body.amenities : []).slice(0, MAX_ARRAY).map((a: any) => sanitizeString(a, 200))
   );
@@ -486,11 +506,11 @@ app.delete('/api/cities/:id', requireAuth, requireRole('admin'), async (c) => {
 app.route('/auth', authRoutes);
 
 // ── Catch-all: 404 for unassigned API routes ─────────────
-// app.all fires ONLY when no other route matched (unlike app.use which is middleware)
 app.all('/api/*', (c) => {
+  // PP-SEC-041: Generic error — don't leak internal route structure
   return c.json({
     success: false,
-    message: `Route not found: ${c.req.method} ${c.req.path}`
+    message: 'Not found'
   }, 404);
 });
 

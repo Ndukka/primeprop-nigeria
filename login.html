@@ -171,33 +171,25 @@
       finally { btn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Create Account'; btn.disabled = false; }
     }
 
-    // Check for existing session
-    const existing = localStorage.getItem('pp_token');
-    if (existing) {
-      fetch('/auth/session', { headers: { 'Authorization': 'Bearer ' + existing } })
-        .then(r => r.json())
-        .then(d => {
-          if (d.success) {
-            const role = d.data.user.role;
-            window.location.href = role === 'admin' ? '/admin.html' : '/agent.html';
-          } else {
-            localStorage.removeItem('pp_token');
-            localStorage.removeItem('pp_user');
-          }
-        })
-        .catch(() => {});
-    }
+    // Check for existing session via HttpOnly cookie
+    fetch('/auth/session', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          const role = d.data.user.role;
+          window.location.href = role === 'admin' ? '/admin.html' : '/agent.html';
+        }
+      })
+      .catch(() => {});
 
-    // Handle URL token from Google OAuth callback
+    // Handle URL token from Google OAuth callback — cookie is set by backend,
+    // just check the session to determine redirect.
     const urlParams = new URLSearchParams(window.location.search);
-    const oauthToken = urlParams.get('token');
-    if (oauthToken) {
-      localStorage.setItem('pp_token', oauthToken);
-      fetch('/auth/session', { headers: { 'Authorization': 'Bearer ' + oauthToken } })
+    if (urlParams.get('token')) {
+      fetch('/auth/session', { credentials: 'include' })
         .then(r => r.json())
         .then(d => {
           if (d.success) {
-            localStorage.setItem('pp_user', JSON.stringify(d.data.user));
             window.location.href = d.data.user.role === 'admin' ? '/admin.html' : '/agent.html';
           }
         });
@@ -223,9 +215,7 @@
         const data = await res.json();
 
         if (data.success) {
-          // Store token for session check on next visit (cookie handles actual auth)
-          localStorage.setItem('pp_token', data.data.token);
-          localStorage.setItem('pp_user', JSON.stringify(data.data.user));
+          // Auth is handled via HttpOnly cookie — no localStorage needed
           const role = data.data.user.role;
           window.location.href = role === 'admin' ? '/admin.html' : '/agent.html';
         } else {

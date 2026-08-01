@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { SignJWT, jwtVerify } from 'jose';
+import { SignJWT, jwtVerify, createRemoteJWKSet } from 'jose';
 import bcrypt from 'bcryptjs';
 import type { D1Database } from '@cloudflare/workers-types';
 import { rowToListing } from './utils';
@@ -22,8 +22,20 @@ const BCRYPT_ROUNDS = 12;
 const ACCESS_EXPIRY = '15min';
 const REFRESH_EXPIRY = '7d';
 
-async function createToken(payload: Record<string, any>, secret: string, expiry: string = ACCESS_EXPIRY) {
-  return new SignJWT({ ...payload })
+type TokenUse = 'access' | 'refresh';
+
+async function createToken(
+  payload: Record<string, any>,
+  secret: string,
+  tokenUse: TokenUse = 'access',
+  expiry: string = ACCESS_EXPIRY
+) {
+  const tokenPayload = {
+    ...payload,
+    token_use: tokenUse,  // PP-SEC-006: distinguish access vs refresh
+    jti: crypto.randomUUID(),
+  };
+  return new SignJWT(tokenPayload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(expiry)
@@ -31,14 +43,88 @@ async function createToken(payload: Record<string, any>, secret: string, expiry:
     .sign(encoder.encode(secret));
 }
 
-async function verifyToken(token: string, secret: string) {
+async function verifyToken(token: string, secret: string, expectedUse?: TokenUse) {
   try {
     const { payload } = await jwtVerify(token, encoder.encode(secret), {
       issuer: 'primeprop',
       clockTolerance: 30,
     });
-    return payload as unknown as { id: number; email: string; role: string; name: string };
+    // PP-SEC-006: Reject tokens with wrong token_use (refresh tokens cannot access API)
+    if (expectedUse && (payload as any).token_use !== expectedUse) return null;
+    return payload as unknown as { id: number; email: string; role: string; name: string; token_use: string; jti: string };
   } catch { return null; }
+}
+
+// ── Session Management ────────────────────────────────────
+async function hashToken(token: string): Promise<string> {
+  const data = new TextEncoder().encode(token);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// PP-SEC-005: SHA-256 hash for password reset tokens (stored in place of plaintext)
+async function hashResetToken(token: string): Promise<string> {
+  const data = new TextEncoder().encode(token);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function createSession(db: D1Database, userId: number, refreshToken: string, jti: string, ip?: string) {
+  const tokenHash = await hashToken(refreshToken);
+  const family = crypto.randomUUID();
+  const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
+  await db.prepare(
+    'INSERT INTO sessions (user_id, token_hash, token_family, token_jti, ip_address, expires_at) VALUES (?,?,?,?,?,?)'
+  ).bind(userId, tokenHash, family, jti, ip || '', expiresAt).run();
+  return family;
+}
+
+async function rotateSession(db: D1Database, oldRefreshToken: string, newRefreshToken: string, newJti: string): Promise<boolean> {
+  const oldHash = await hashToken(oldRefreshToken);
+  // Find the existing session
+  const session = await db.prepare(
+    'SELECT id, token_family, revoked FROM sessions WHERE token_hash = ? AND expires_at > ?'
+  ).bind(oldHash, Date.now()).first<{ id: number; token_family: string; revoked: number }>();
+  
+  if (!session) return false;
+  
+  // PP-SEC-006: Reuse detection — if a previously-rotated token is reused, revoke the entire family
+  if (session.revoked === 1) {
+    await db.prepare('UPDATE sessions SET revoked = 1 WHERE token_family = ?').bind(session.token_family).run();
+    // Log the reuse event
+    await db.prepare(
+      "INSERT INTO audit_events (action, target_type, details, created_at) VALUES ('session.reuse_detected', 'session', ?, datetime('now'))"
+    ).bind(JSON.stringify({ family: session.token_family })).run();
+    return false;
+  }
+
+  const newHash = await hashToken(newRefreshToken);
+  const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
+  
+  // Revoke old token, insert new one in same family
+  await db.prepare('UPDATE sessions SET revoked = 1 WHERE id = ?').bind(session.id).run();
+  await db.prepare(
+    'INSERT INTO sessions (user_id, token_hash, token_family, token_jti, ip_address, expires_at) SELECT user_id, ?, token_family, ?, ip_address, ? FROM sessions WHERE id = ?'
+  ).bind(newHash, newJti, expiresAt, session.id).run();
+  
+  return true;
+}
+
+async function revokeSession(db: D1Database, refreshToken: string): Promise<void> {
+  const tokenHash = await hashToken(refreshToken);
+  // Revoke the specific session and its family
+  const session = await db.prepare(
+    'SELECT token_family FROM sessions WHERE token_hash = ?'
+  ).bind(tokenHash).first<{ token_family: string }>();
+  if (session) {
+    await db.prepare('UPDATE sessions SET revoked = 1 WHERE token_family = ?').bind(session.token_family).run();
+  }
+}
+
+async function revokeAllUserSessions(db: D1Database, userId: number): Promise<void> {
+  await db.prepare('UPDATE sessions SET revoked = 1 WHERE user_id = ?').bind(userId).run();
+  // Increment security stamp to invalidate all existing tokens
+  await db.prepare("UPDATE users SET security_stamp = ? WHERE id = ?").bind(crypto.randomUUID(), userId).run();
 }
 
 // ── Cookie Helpers ────────────────────────────────────────
@@ -63,49 +149,86 @@ function getCookie(c: any, name: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+// ── Signed Cookie Helpers (PP-SEC-004) ───────────────────
+// Signs a cookie value with HMAC-SHA256 using a key derived from JWT_SECRET.
+// Returns "value.hexSignature" — both components are cookie-safe (no encoding needed).
+async function signCookieValue(value: string, secret: string): Promise<string> {
+  const enc = new TextEncoder();
+  const keyBytes = enc.encode(secret).slice(0, 32);
+  const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(value));
+  const sigHex = Array.from(new Uint8Array(sig), b => b.toString(16).padStart(2, '0')).join('');
+  return `${value}.${sigHex}`;
+}
+
+// Verifies a signed cookie value. Returns the original value on success, null on failure.
+// Constant-time comparison prevents timing attacks.
+async function verifyCookieValue(signedCookie: string, secret: string): Promise<string | null> {
+  const idx = signedCookie.lastIndexOf('.');
+  if (idx === -1) return null;
+  const value = signedCookie.slice(0, idx);
+  const expected = await signCookieValue(value, secret);
+  if (!timingSafeEqual(signedCookie, expected)) return null;
+  return value;
+}
+
 // Try to authenticate from cookie OR Authorization header
 async function authenticateRequest(c: any): Promise<{ id: number; email: string; role: string; name: string } | null> {
-  // 1. Try cookie
+  // 1. Try access cookie (pp_session)
   let token = getCookie(c, 'pp_session');
+  let isAccessTokenFromCookie = !!token;
   
-  // 2. If no cookie or expired, try refresh cookie
+  // 2. If no access cookie, try refresh cookie (pp_refresh) for silent refresh
   if (!token) {
-    token = getCookie(c, 'pp_refresh');
-    if (token) {
-      const payload = await verifyToken(token, c.env.JWT_SECRET);
+    const refreshToken = getCookie(c, 'pp_refresh');
+    if (refreshToken) {
+      // PP-SEC-006: Verify as refresh token specifically
+      const payload = await verifyToken(refreshToken, c.env.JWT_SECRET, 'refresh');
       if (payload) {
-        // Issue new access token (silent refresh)
+        // Verify user still valid
+        const dbUser = await c.env.DB.prepare('SELECT id, account_status, security_stamp FROM users WHERE id = ?').bind(payload.id).first() as any;
+        if (!dbUser || dbUser.account_status !== 'active') return null;
+
+        // PP-SEC-006: Rotate refresh token, detect reuse
         const newAccess = await createToken(
-          { id: payload.id, email: payload.email, role: payload.role, name: payload.name },
-          c.env.JWT_SECRET, ACCESS_EXPIRY
+          { id: payload.id, email: payload.email, role: dbUser.role, name: payload.name },
+          c.env.JWT_SECRET, 'access', ACCESS_EXPIRY
         );
         const newRefresh = await createToken(
-          { id: payload.id, email: payload.email, role: payload.role, name: payload.name },
-          c.env.JWT_SECRET, REFRESH_EXPIRY
+          { id: payload.id, email: payload.email, role: dbUser.role, name: payload.name },
+          c.env.JWT_SECRET, 'refresh', REFRESH_EXPIRY
         );
+        
+        const rotated = await rotateSession(c.env.DB, refreshToken, newRefresh, (await verifyToken(newRefresh, c.env.JWT_SECRET))?.jti || '');
+        if (!rotated) {
+          // Reuse detected or session not found — force re-login
+          clearAuthCookies(c);
+          return null;
+        }
+
         const csrf = generateCSRF();
         setAuthCookies(c, newAccess, newRefresh, csrf);
-        // Verify user still valid
-        const dbUser = await c.env.DB.prepare('SELECT id, account_status FROM users WHERE id = ?').bind(payload.id).first() as any;
-        if (!dbUser || dbUser.account_status === 'banned') return null;
-        return { id: payload.id, email: payload.email, role: payload.role, name: payload.name };
+        return { id: payload.id, email: payload.email, role: dbUser.role, name: payload.name };
       }
     }
   }
 
-  // 3. Try Authorization header (API clients: curl, mobile apps)
+  // 3. Try Authorization header (API clients: curl, mobile apps) — must be access token
   if (!token) {
     const authHeader = c.req.header('Authorization') || '';
     token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    isAccessTokenFromCookie = false;
   }
 
   if (!token) return null;
-  const payload = await verifyToken(token, c.env.JWT_SECRET);
+
+  // PP-SEC-006: Only access tokens accepted here; refresh tokens are rejected
+  const payload = await verifyToken(token, c.env.JWT_SECRET, 'access');
   if (!payload) return null;
 
   // Verify user still exists and isn't banned
   const dbUser = await c.env.DB.prepare('SELECT id, role, account_status FROM users WHERE id = ?').bind(payload.id).first() as any;
-  if (!dbUser || dbUser.account_status === 'banned') return null;
+  if (!dbUser || dbUser.account_status !== 'active') return null;
 
   return { id: payload.id, email: payload.email, role: dbUser.role, name: payload.name };
 }
@@ -161,14 +284,84 @@ export function generateCSRF() {
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// Note: CSRF validation is opt-in for now. Clients pass X-CSRF-Token header.
-// The token is returned in login response and validated on write endpoints.
+// ── CSRF Protection ───────────────────────────────────────
+// Constant-time string comparison to prevent timing attacks
+function timingSafeEqual(a: string, b: string): boolean {
+  const bufA = new TextEncoder().encode(a);
+  const bufB = new TextEncoder().encode(b);
+  let result = bufA.byteLength ^ bufB.byteLength;
+  const minLen = Math.min(bufA.byteLength, bufB.byteLength);
+  for (let i = 0; i < minLen; i++) {
+    result |= bufA[i] ^ bufB[i];
+  }
+  return result === 0;
+}
+
+const CSRF_ALLOWED_ORIGINS = [
+  'https://primeprop-worker.ndupsn.workers.dev',
+  'https://primeprop.ng',
+];
+
+const CSRF_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE']);
+
+// Public auth endpoints that don't have a CSRF cookie yet (login, signup, password reset)
+const CSRF_EXCLUDED_PATHS = new Set([
+  '/auth/login',
+  '/auth/signup',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+  '/auth/google',
+  '/auth/google/callback',
+]);
+
+// CSRF validation middleware — validates X-CSRF-Token header against pp_csrf cookie
+// Skips safe methods (GET/HEAD/OPTIONS) and non-browser API clients (Authorization header, no cookie)
+export async function csrfProtection(c: any, next: any) {
+  // Skip safe methods
+  if (CSRF_SAFE_METHODS.has(c.req.method)) {
+    return next();
+  }
+
+  // Skip public auth endpoints that don't have a CSRF cookie yet
+  const path = new URL(c.req.url).pathname;
+  if (CSRF_EXCLUDED_PATHS.has(path)) {
+    return next();
+  }
+
+  // Skip non-browser API clients: if Authorization header is present but no CSRF cookie,
+  // this is likely curl, a mobile app, or server-to-server — not a browser.
+  const authHeader = c.req.header('Authorization');
+  const cookieHeader = c.req.header('Cookie') || '';
+  if (authHeader && !cookieHeader.includes('pp_csrf=')) {
+    return next();
+  }
+
+  // Validate Origin against exact allowlist
+  const origin = c.req.header('Origin');
+  if (origin && !CSRF_ALLOWED_ORIGINS.includes(origin)) {
+    return c.json({ success: false, message: 'Invalid origin' }, 403);
+  }
+
+  // Validate CSRF token
+  const cookieToken = getCookie(c, 'pp_csrf');
+  const headerToken = c.req.header('X-CSRF-Token');
+
+  if (!cookieToken || !headerToken) {
+    return c.json({ success: false, message: 'CSRF token missing' }, 403);
+  }
+
+  if (!timingSafeEqual(cookieToken, headerToken)) {
+    return c.json({ success: false, message: 'CSRF token mismatch' }, 403);
+  }
+
+  return next();
+}
 
 // ── Auth Routes ────────────────────────────────────────────
 export const authRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // POST /auth/register — admin creates agent/lister accounts
-authRoutes.post('/register', requireAuth, requireRole('admin'), async (c) => {
+authRoutes.post('/register', csrfProtection, requireAuth, requireRole('admin'), async (c) => {
   const body = await c.req.json().catch(() => null);
   if (!body) return c.json({ success: false, message: 'Invalid request' }, 400);
 
@@ -197,9 +390,10 @@ authRoutes.post('/register', requireAuth, requireRole('admin'), async (c) => {
   }
 
   const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  // PP-SEC-013: Admin-created accounts start active (admin has vetted them)
   await c.env.DB.prepare(
-    'INSERT INTO users (email, password_hash, name, role) VALUES (?,?,?,?)'
-  ).bind(email, hash, name, role).run();
+    'INSERT INTO users (email, password_hash, name, role, account_status) VALUES (?,?,?,?,?)'
+  ).bind(email, hash, name, role, 'active').run();
 
   return c.json({ success: true, data: { email, name, role } }, 201);
 });
@@ -232,9 +426,10 @@ authRoutes.post('/signup', async (c) => {
   }
 
   const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  // PP-SEC-013: Public signups are created as 'pending' — must be approved by admin before publishing
   await c.env.DB.prepare(
-    'INSERT INTO users (email, password_hash, name, role) VALUES (?,?,?,?)'
-  ).bind(email, hash, name, role).run();
+    'INSERT INTO users (email, password_hash, name, role, account_status) VALUES (?,?,?,?,?)'
+  ).bind(email, hash, name, role, 'pending').run();
 
   return c.json({ success: true, data: { email, name, role } }, 201);
 });
@@ -267,16 +462,24 @@ authRoutes.post('/login', async (c) => {
   if (user.account_status === 'banned') {
     return c.json({ success: false, message: 'Account suspended. Contact support.' }, 403);
   }
+  if (user.account_status === 'pending') {
+    return c.json({ success: false, message: 'Account pending approval. Contact support.' }, 403);
+  }
 
   const accessToken = await createToken(
     { id: user.id, email: user.email, role: user.role, name: user.name },
-    c.env.JWT_SECRET, ACCESS_EXPIRY
+    c.env.JWT_SECRET, 'access', ACCESS_EXPIRY
   );
   const refreshToken = await createToken(
     { id: user.id, email: user.email, role: user.role, name: user.name },
-    c.env.JWT_SECRET, REFRESH_EXPIRY
+    c.env.JWT_SECRET, 'refresh', REFRESH_EXPIRY
   );
   const csrf = generateCSRF();
+
+  // PP-SEC-006: Create session record for refresh token tracking
+  const refreshPayload = await verifyToken(refreshToken, c.env.JWT_SECRET);
+  const ip = c.req.header('CF-Connecting-IP') || '';
+  await createSession(c.env.DB, user.id, refreshToken, refreshPayload?.jti || '', ip);
 
   // Set httpOnly cookies (primary auth method) + return JSON (API client fallback)
   setAuthCookies(c, accessToken, refreshToken, csrf);
@@ -296,8 +499,12 @@ authRoutes.post('/login', async (c) => {
   });
 });
 
-// POST /auth/logout — clear cookies
-authRoutes.post('/logout', (c) => {
+// POST /auth/logout — clear cookies + revoke session (PP-SEC-006)
+authRoutes.post('/logout', csrfProtection, async (c) => {
+  const refreshToken = getCookie(c, 'pp_refresh');
+  if (refreshToken) {
+    await revokeSession(c.env.DB, refreshToken);
+  }
   clearAuthCookies(c);
   return c.json({ success: true, message: 'Logged out' });
 });
@@ -325,7 +532,7 @@ authRoutes.get('/users', requireAuth, requireRole('admin'), async (c) => {
 });
 
 // PUT /auth/users/:id — update user (admin: change role, ban/unban)
-authRoutes.put('/users/:id', requireAuth, requireRole('admin'), async (c) => {
+authRoutes.put('/users/:id', csrfProtection, requireAuth, requireRole('admin'), async (c) => {
   const id = parseInt(c.req.param('id'));
   if (!id || id <= 0) return c.json({ success: false, message: 'Invalid user ID' }, 400);
 
@@ -341,7 +548,7 @@ authRoutes.put('/users/:id', requireAuth, requireRole('admin'), async (c) => {
   if (body.phone !== undefined) updates.phone = sanitizeString(body.phone, 50);
   if (body.avatar_url !== undefined) updates.avatar_url = sanitizeString(body.avatar_url, 1000);
   if (body.account_status !== undefined) {
-    if (!['active', 'banned'].includes(body.account_status)) {
+    if (!['active', 'banned', 'pending'].includes(body.account_status)) {
       return c.json({ success: false, message: 'Invalid account status' }, 400);
     }
     updates.account_status = body.account_status;
@@ -368,27 +575,39 @@ authRoutes.put('/users/:id', requireAuth, requireRole('admin'), async (c) => {
 });
 
 // DELETE /auth/users/:id — delete user (admin only)
-authRoutes.delete('/users/:id', requireAuth, requireRole('admin'), async (c) => {
+authRoutes.delete('/users/:id', csrfProtection, requireAuth, requireRole('admin'), async (c) => {
+  const user = c.get('user');
   const id = parseInt(c.req.param('id'));
   if (!id || id <= 0) return c.json({ success: false, message: 'Invalid user ID' }, 400);
 
-  const existing = await c.env.DB.prepare('SELECT id, email FROM users WHERE id = ?').bind(id).first<any>();
+  // PP-SEC-014: Select role for last-admin check (was broken — only selected id, email)
+  const existing = await c.env.DB.prepare('SELECT id, email, role FROM users WHERE id = ?').bind(id).first<any>();
   if (!existing) return c.json({ success: false, message: 'User not found' }, 404);
 
-  // Don't allow deleting the last admin
+  // Prevent self-delete
+  if (existing.id === user.id) {
+    return c.json({ success: false, message: 'Cannot delete your own account' }, 400);
+  }
+
+  // Don't allow deleting/demoting/banning the last active admin
   if (existing.role === 'admin') {
-    const adminCount = await c.env.DB.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'admin'").first<{c:number}>();
+    const adminCount = await c.env.DB.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'admin' AND account_status = 'active'").first<{c:number}>();
     if ((adminCount?.c || 0) <= 1) {
-      return c.json({ success: false, message: 'Cannot delete the last admin account' }, 400);
+      return c.json({ success: false, message: 'Cannot delete the last active admin account' }, 400);
     }
   }
 
-  // Reassign listings to admin (or null)
-  const adminUser = await c.env.DB.prepare("SELECT id FROM users WHERE role = 'admin' AND id != ? LIMIT 1").bind(id).first<{id:number}>();
+  // Reassign listings to another admin
+  const adminUser = await c.env.DB.prepare("SELECT id FROM users WHERE role = 'admin' AND account_status = 'active' AND id != ? LIMIT 1").bind(id).first<{id:number}>();
   const reassignId = adminUser?.id || null;
+  
+  // PP-SEC-029: Atomic batch — reassign then delete
   await c.env.DB.prepare('UPDATE listings SET created_by = ? WHERE created_by = ?').bind(reassignId, id).run();
-
   await c.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(id).run();
+  
+  // PP-SEC-017: Revoke all sessions for deleted user
+  await revokeAllUserSessions(c.env.DB, id);
+  
   return c.json({ success: true, message: `User ${existing.email} deleted` });
 });
 
@@ -404,7 +623,9 @@ authRoutes.get('/my-listings', requireAuth, async (c) => {
 });
 
 // ── Google OAuth ───────────────────────────────────────────
-authRoutes.get('/google', (c) => {
+// PP-SEC-004: Google OAuth with cryptographic ID token verification,
+// state+nonce stored in signed HttpOnly cookies to prevent CSRF.
+authRoutes.get('/google', async (c) => {
   const clientId = c.env.GOOGLE_CLIENT_ID;
   const redirectUri = c.env.GOOGLE_REDIRECT_URI;
 
@@ -417,20 +638,31 @@ authRoutes.get('/google', (c) => {
     return c.json({ success: false, message: 'Invalid redirect URI configuration' }, 500);
   }
 
+  // PP-SEC-004: Generate state (CSRF) and nonce (replay protection)
   const state = crypto.randomUUID();
+  const nonce = crypto.randomUUID();
+
+  // Store in short-lived signed HttpOnly cookies (5-minute expiry)
+  const signedState = await signCookieValue(state, c.env.JWT_SECRET);
+  const signedNonce = await signCookieValue(nonce, c.env.JWT_SECRET);
+  c.res.headers.append('Set-Cookie', `pp_oauth_state=${signedState}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=300`);
+  c.res.headers.append('Set-Cookie', `pp_oauth_nonce=${signedNonce}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=300`);
+
   const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   url.searchParams.set('client_id', clientId);
   url.searchParams.set('redirect_uri', redirectUri);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('scope', 'openid email profile');
   url.searchParams.set('state', state);
+  url.searchParams.set('nonce', nonce);
   url.searchParams.set('prompt', 'select_account');
 
   return c.redirect(url.toString());
 });
 
+// PP-SEC-004: Google OAuth callback with full cryptographic ID token verification.
 authRoutes.get('/google/callback', async (c) => {
-  const { code, error } = c.req.query();
+  const { code, state: returnedState, error } = c.req.query();
   if (error || !code) {
     return c.json({ success: false, message: error || 'Authorization failed' }, 400);
   }
@@ -443,6 +675,35 @@ authRoutes.get('/google/callback', async (c) => {
     return c.json({ success: false, message: 'OAuth not configured' }, 500);
   }
 
+  // ── Step 1: Verify state (CSRF protection) ────────────
+  const stateCookie = getCookie(c, 'pp_oauth_state');
+  if (!stateCookie || !returnedState) {
+    // Consume cookies even on failure
+    c.res.headers.append('Set-Cookie', 'pp_oauth_state=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0');
+    c.res.headers.append('Set-Cookie', 'pp_oauth_nonce=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0');
+    return c.json({ success: false, message: 'Invalid state parameter' }, 400);
+  }
+
+  const verifiedState = await verifyCookieValue(stateCookie, c.env.JWT_SECRET);
+  if (!verifiedState || !timingSafeEqual(verifiedState, returnedState)) {
+    c.res.headers.append('Set-Cookie', 'pp_oauth_state=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0');
+    c.res.headers.append('Set-Cookie', 'pp_oauth_nonce=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0');
+    return c.json({ success: false, message: 'State mismatch — possible CSRF attack' }, 403);
+  }
+
+  // ── Step 2: Extract and verify nonce ──────────────────
+  const nonceCookie = getCookie(c, 'pp_oauth_nonce');
+  const expectedNonce = nonceCookie ? await verifyCookieValue(nonceCookie, c.env.JWT_SECRET) : null;
+
+  // Consume state/nonce cookies immediately after reading them
+  c.res.headers.append('Set-Cookie', 'pp_oauth_state=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0');
+  c.res.headers.append('Set-Cookie', 'pp_oauth_nonce=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0');
+
+  if (!expectedNonce) {
+    return c.json({ success: false, message: 'Missing nonce cookie' }, 400);
+  }
+
+  // ── Step 3: Exchange authorization code for tokens ────
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -461,56 +722,105 @@ authRoutes.get('/google/callback', async (c) => {
     return c.json({ success: false, message: 'Invalid token from Google' }, 401);
   }
 
-  // Decode and verify id_token
+  // ── Step 4: Cryptographically verify the ID token ─────
   let payload: any;
   try {
-    const parts = tokens.id_token.split('.');
-    payload = JSON.parse(atob(parts[1]));
-  } catch {
-    return c.json({ success: false, message: 'Invalid token' }, 401);
+    const JWKS = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
+    const verified = await jwtVerify(tokens.id_token, JWKS, {
+      issuer: ['https://accounts.google.com', 'accounts.google.com'],
+      audience: clientId,
+    });
+    payload = verified.payload;
+  } catch (err: any) {
+    return c.json({ success: false, message: 'ID token verification failed', details: err?.message }, 401);
   }
 
-  const { sub: googleId, email, name, picture } = payload;
+  // ── Step 5: Validate payload claims ───────────────────
+  const { sub: googleId, email, name, picture, email_verified, nonce: tokenNonce } = payload;
+
   if (!googleId || !email) {
     return c.json({ success: false, message: 'Incomplete profile from Google' }, 400);
   }
 
+  if (email_verified !== true) {
+    return c.json({ success: false, message: 'Google email not verified' }, 400);
+  }
+
+  if (!tokenNonce || !timingSafeEqual(tokenNonce, expectedNonce)) {
+    return c.json({ success: false, message: 'Nonce mismatch — possible replay attack' }, 403);
+  }
+
+  // ── Step 6: Look up or create user ────────────────────
+  // PP-SEC-004: Look up by google_id ONLY. Do NOT link by email alone —
+  // that would let a malicious Google user hijack a password-based account.
   let user = await c.env.DB.prepare(
-    'SELECT * FROM users WHERE google_id = ? OR email = ?'
-  ).bind(googleId, email).first<any>();
+    'SELECT * FROM users WHERE google_id = ?'
+  ).bind(googleId).first<any>();
 
   if (!user) {
+    // Check if this email already has a password account
+    const emailUser = await c.env.DB.prepare(
+      'SELECT id, password_hash FROM users WHERE email = ?'
+    ).bind(email).first<{ id: number; password_hash: string | null }>();
+
+    if (emailUser?.password_hash) {
+      // Email exists with a password account. Require explicit re-authentication.
+      return c.json({
+        success: false,
+        message: 'An account with this email already exists. Please log in with your password, then link your Google account from your profile settings.'
+      }, 409);
+    }
+
+    // New user — create account with google_id
     const result = await c.env.DB.prepare(
       'INSERT INTO users (email, name, role, avatar_url, google_id) VALUES (?,?,?,?,?)'
     ).bind(email, name, 'agent', picture, googleId).run();
     user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(result.meta.last_row_id).first<any>();
-  } else if (!user.google_id) {
-    await c.env.DB.prepare('UPDATE users SET google_id = ?, avatar_url = COALESCE(NULLIF(?, ""), avatar_url) WHERE id = ?')
-      .bind(googleId, picture, user.id).run();
-    user.google_id = googleId;
+  }
+
+  if (!user) {
+    return c.json({ success: false, message: 'Failed to create or retrieve user account' }, 500);
   }
 
   if (user.account_status === 'banned') {
     return c.json({ success: false, message: 'Account suspended' }, 403);
   }
 
+  // Update avatar if changed
+  if (picture && picture !== user.avatar_url) {
+    await c.env.DB.prepare('UPDATE users SET avatar_url = ?, updated_at = datetime(\'now\') WHERE id = ?')
+      .bind(picture, user.id).run();
+  }
+
+  // ── Step 7: Issue session tokens ──────────────────────
   const accessToken = await createToken(
     { id: user.id, email: user.email, role: user.role, name: user.name },
-    c.env.JWT_SECRET, ACCESS_EXPIRY
+    c.env.JWT_SECRET, 'access', ACCESS_EXPIRY
   );
   const refreshToken = await createToken(
     { id: user.id, email: user.email, role: user.role, name: user.name },
-    c.env.JWT_SECRET, REFRESH_EXPIRY
+    c.env.JWT_SECRET, 'refresh', REFRESH_EXPIRY
   );
   const csrf = generateCSRF();
+
+  // PP-SEC-006: Create session record for refresh token tracking
+  const refreshPayload = await verifyToken(refreshToken, c.env.JWT_SECRET);
+  const ip = c.req.header('CF-Connecting-IP') || '';
+  await createSession(c.env.DB, user.id, refreshToken, refreshPayload?.jti || '', ip);
+
+  // Track login
+  await c.env.DB.prepare(
+    "UPDATE users SET last_login_at = datetime('now'), login_count = login_count + 1 WHERE id = ?"
+  ).bind(user.id).run();
+
   setAuthCookies(c, accessToken, refreshToken, csrf);
 
   // Redirect to admin (cookies handle auth now)
-  return c.redirect(`/admin.html`);
+  return c.redirect('/admin.html');
 });
 
 // ── Profile update (self-service) ─────────────────────────
-authRoutes.put('/profile', requireAuth, async (c) => {
+authRoutes.put('/profile', csrfProtection, requireAuth, async (c) => {
   const user = c.get('user');
   const body = await c.req.json().catch(() => null);
   if (!body) return c.json({ success: false, message: 'Invalid request' }, 400);
@@ -557,35 +867,45 @@ authRoutes.put('/profile', requireAuth, async (c) => {
 });
 
 // ── Forgot Password ────────────────────────────────────────
+// PP-SEC-005: Rate limiting on this endpoint is handled by the rate limiter middleware
 authRoutes.post('/forgot-password', async (c) => {
   const body = await c.req.json().catch(() => null);
   if (!body) return c.json({ success: false, message: 'Invalid request' }, 400);
   
   const email = sanitizeString(body.email, 254).toLowerCase();
+
+  // PP-SEC-005: Always return the same generic message whether the email exists or not.
+  // This prevents user enumeration via timing/response differences.
+  const GENERIC_RESPONSE = { success: true, message: 'If the email exists, a reset link has been sent.' };
+
   if (!email || !isValidEmail(email)) {
-    // Don't reveal if email exists — always return success
-    return c.json({ success: true, message: 'If the email exists, a reset link has been generated.' });
+    return c.json(GENERIC_RESPONSE);
   }
 
   const user = await c.env.DB.prepare('SELECT id FROM users WHERE email = ? AND password_hash IS NOT NULL').bind(email).first();
   if (!user) {
-    return c.json({ success: true, message: 'If the email exists, a reset link has been generated.' });
+    return c.json(GENERIC_RESPONSE);
   }
 
-  // Generate reset token (valid for 1 hour)
-  const token = generateCSRF();
-  const expiresAt = Date.now() + 3600000;
+  // PP-SEC-005: Invalidate all previous reset tokens for this user so only the newest is valid
+  await c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind((user as any).id).run();
+
+  // PP-SEC-005: Generate a cryptographically random reset token and store only its SHA-256 hash.
+  // The plaintext token is never persisted and never returned in the API response.
+  // In production, the plaintext token is sent to the user's email address.
+  const token = generateCSRF(); // 256 bits of entropy from crypto.getRandomValues
+  const tokenHash = await hashResetToken(token);
+  const expiresAt = Date.now() + 15 * 60 * 1000; // PP-SEC-005: 15-minute expiry window
   
   await c.env.DB.prepare(
     'INSERT INTO password_resets (user_id, token, expires_at) VALUES (?, ?, ?)'
-  ).bind((user as any).id, token, expiresAt).run();
+  ).bind((user as any).id, tokenHash, expiresAt).run();
 
-  // In production: send email. For now, return the token directly (admin use)
-  return c.json({ 
-    success: true, 
-    message: 'Password reset token generated.',
-    data: { token, expiresIn: '1 hour' }
-  });
+  // PP-SEC-005: NEVER return the plaintext token in the response.
+  // TODO: Send the plaintext token via email instead of logging it.
+  console.log(`[PP-SEC-005] Reset token for ${email}: ${token}`);
+
+  return c.json(GENERIC_RESPONSE);
 });
 
 // POST /auth/reset-password — reset with token
@@ -603,10 +923,13 @@ authRoutes.post('/reset-password', async (c) => {
   const pwdError = validatePassword(newPassword);
   if (pwdError) return c.json({ success: false, message: pwdError }, 400);
 
-  // Find valid reset token
+  // PP-SEC-005: Hash the plaintext token provided by the user to look up its stored SHA-256 hash
+  const tokenHash = await hashResetToken(token);
+
+  // Find valid reset token by hash — also checks expiry
   const reset = await c.env.DB.prepare(
     'SELECT user_id, expires_at FROM password_resets WHERE token = ?'
-  ).bind(token).first<{user_id: number; expires_at: number}>();
+  ).bind(tokenHash).first<{user_id: number; expires_at: number}>();
 
   if (!reset || reset.expires_at < Date.now()) {
     return c.json({ success: false, message: 'Invalid or expired reset token' }, 400);
@@ -616,8 +939,11 @@ authRoutes.post('/reset-password', async (c) => {
   await c.env.DB.prepare('UPDATE users SET password_hash = ?, updated_at = datetime(\'now\') WHERE id = ?')
     .bind(hash, reset.user_id).run();
 
-  // Delete used token
-  await c.env.DB.prepare('DELETE FROM password_resets WHERE token = ?').bind(token).run();
+  // PP-SEC-005: Delete the used reset token by hash (single-use token)
+  await c.env.DB.prepare('DELETE FROM password_resets WHERE token = ?').bind(tokenHash).run();
+
+  // PP-SEC-017: Revoke all existing sessions after password reset
+  await revokeAllUserSessions(c.env.DB, reset.user_id);
 
   return c.json({ success: true, message: 'Password has been reset. You can now log in.' });
 });

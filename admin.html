@@ -940,6 +940,72 @@
     function getCsrf() { return (document.cookie.match(/(?:^|;\s*)pp_csrf=([^;]*)/) || [])[1] || ''; }
     let AUTH_USER = null; // Fetched from session
 
+    // ── Safe DOM helpers (PP-SEC-002) ────────────────────────
+    function isSafeUrl(url) {
+      if (!url || typeof url !== 'string') return false;
+      return url.startsWith('https://');
+    }
+
+    function safeTextEl(tag, text) {
+      var el = document.createElement(tag);
+      el.textContent = text != null ? String(text) : '';
+      return el;
+    }
+
+    function safeBadge(text, type) {
+      var valid = { rent:1, sale:1, land:1, featured:1, all:1 };
+      var el = document.createElement('span');
+      el.className = 'badge badge-' + (valid[type] ? type : 'rent');
+      el.textContent = text != null ? String(text) : '';
+      return el;
+    }
+
+    function safeImg(url, alt, className) {
+      var img = document.createElement('img');
+      if (isSafeUrl(url)) img.src = url;
+      img.alt = alt || '';
+      if (className) img.className = className;
+      img.onerror = function() { this.style.display = 'none'; };
+      return img;
+    }
+
+    // Create a safe upload preview item with remove button
+    function createPreviewItem(url, onRemove) {
+      var div = document.createElement('div');
+      div.className = 'upload-preview-item';
+      if (url && isSafeUrl(url)) {
+        var isImg = /\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i.test(url);
+        if (isImg) {
+          var img = document.createElement('img');
+          img.src = url;
+          img.alt = '';
+          div.appendChild(img);
+        } else {
+          var isPdf = /\.pdf(\?|$)/i.test(url);
+          var icon = document.createElement('i');
+          icon.className = 'fa-solid fa-' + (isPdf ? 'file-pdf' : 'file');
+          icon.style.cssText = 'font-size:1.5rem;color:#64748b;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)';
+          div.appendChild(icon);
+        }
+      }
+      var btn = document.createElement('button');
+      btn.className = 'remove-btn';
+      btn.textContent = '\u00d7';
+      btn.addEventListener('click', function() {
+        div.remove();
+        if (onRemove) onRemove();
+      });
+      div.appendChild(btn);
+      return div;
+    }
+
+    // Clear a container and rebuild it with createElement children
+    function clearContainer(id) {
+      var el = typeof id === 'string' ? document.getElementById(id) : id;
+      if (el) { while (el.firstChild) el.removeChild(el.firstChild); }
+      return el;
+    }
+
     // Hide admin-only elements for agents
     function isAdmin() { return AUTH_USER && AUTH_USER.role === 'admin'; }
 
@@ -967,10 +1033,18 @@
         if (!d.success || !d.data.user) throw new Error('Not authenticated');
         AUTH_USER = d.data.user;
 
-        // Show user info in header
+        // Show user info in header (safe DOM)
         const headerUser = document.getElementById('headerUser');
         if (headerUser) {
-          headerUser.innerHTML = `<i class="fa-solid fa-user"></i> ${AUTH_USER.name} <span style="color:#64748b;">(${AUTH_USER.role})</span>`;
+          clearContainer(headerUser);
+          var userIcon = document.createElement('i');
+          userIcon.className = 'fa-solid fa-user';
+          headerUser.appendChild(userIcon);
+          headerUser.appendChild(document.createTextNode(' ' + AUTH_USER.name + ' '));
+          var roleSpan = document.createElement('span');
+          roleSpan.style.color = '#64748b';
+          roleSpan.textContent = '(' + AUTH_USER.role + ')';
+          headerUser.appendChild(roleSpan);
         }
 
         // Hide admin-only elements for agents
@@ -1043,7 +1117,11 @@
         districtsTableWrap.style.display = 'none';
         usersTableWrap.style.display = 'none';
         listingsToolbar.style.display = '';
-        addButton.innerHTML = '<i class="fa-solid fa-plus"></i> Add Listing';
+        clearContainer(addButton);
+        var addIcon = document.createElement('i');
+        addIcon.className = 'fa-solid fa-plus';
+        addButton.appendChild(addIcon);
+        addButton.appendChild(document.createTextNode(' Add Listing'));
         addButton.onclick = openAddModal;
       } else if (tab === 'districts') {
         tabDistricts.classList.add('tab-active');
@@ -1052,7 +1130,11 @@
         districtsTableWrap.style.display = '';
         usersTableWrap.style.display = 'none';
         listingsToolbar.style.display = 'none';
-        addButton.innerHTML = '<i class="fa-solid fa-plus"></i> Add District';
+        clearContainer(addButton);
+        var addIcon2 = document.createElement('i');
+        addIcon2.className = 'fa-solid fa-plus';
+        addButton.appendChild(addIcon2);
+        addButton.appendChild(document.createTextNode(' Add District'));
         addButton.onclick = openDistrictModal;
         loadDistrictsData();
       } else if (tab === 'users') {
@@ -1062,7 +1144,11 @@
         districtsTableWrap.style.display = 'none';
         usersTableWrap.style.display = '';
         listingsToolbar.style.display = 'none';
-        addButton.innerHTML = '<i class="fa-solid fa-plus"></i> Add User';
+        clearContainer(addButton);
+        var addIcon3 = document.createElement('i');
+        addIcon3.className = 'fa-solid fa-plus';
+        addButton.appendChild(addIcon3);
+        addButton.appendChild(document.createTextNode(' Add User'));
         addButton.onclick = openUserModal;
         loadUsersData();
       }
@@ -1111,73 +1197,243 @@
 
     function renderDistrictsTable() {
       const tbody = document.getElementById('districtsTableBody');
+      clearContainer(tbody);
 
       if (allDistricts.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="empty-state-admin"><i class="fa-solid fa-folder-open"></i><p>No districts found</p></td></tr>`;
+        var tr = document.createElement('tr');
+        var td = document.createElement('td');
+        td.colSpan = 6;
+        td.className = 'empty-state-admin';
+        var icon = document.createElement('i');
+        icon.className = 'fa-solid fa-folder-open';
+        td.appendChild(icon);
+        var p = document.createElement('p');
+        p.textContent = 'No districts found';
+        td.appendChild(p);
+        tr.appendChild(td);
+        tbody.appendChild(tr);
         return;
       }
 
-      tbody.innerHTML = allDistricts.map(d => `
-        <tr>
-          <td><img src="${d.image || ''}" class="td-img" alt="${d.name}" onerror="this.style.display='none'"></td>
-          <td class="td-title" title="${d.name}">${d.name}</td>
-          <td>${d.city || '—'}</td>
-          <td>${(d.checks || []).map(c => `<span class="badge badge-land" style="margin-right:4px;">${c}</span>`).join('') || '—'}</td>
-          <td><span class="badge badge-${d.linkType || 'all'}">${d.linkType || 'all'}</span></td>
-          <td>
-            <div class="actions-cell">
-              <button class="btn btn-outline btn-xs" onclick="openDistrictModal(${d.id})" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>
-              <button class="btn btn-danger btn-xs" onclick="confirmDeleteDistrict(${d.id}, '${(d.name || '').replace(/'/g, "\\'")}')" title="Delete"><i class="fa-solid fa-trash"></i></button>
-            </div>
-          </td>
-        </tr>
-      `).join('');
+      allDistricts.forEach(function(d) {
+        var tr = document.createElement('tr');
+
+        // Image cell
+        var tdImg = document.createElement('td');
+        if (d.image && isSafeUrl(d.image)) {
+          tdImg.appendChild(safeImg(d.image, d.name || '', 'td-img'));
+        }
+        tr.appendChild(tdImg);
+
+        // Name cell
+        var tdName = document.createElement('td');
+        tdName.className = 'td-title';
+        tdName.title = d.name || '';
+        tdName.textContent = d.name || '';
+        tr.appendChild(tdName);
+
+        // City cell
+        var tdCity = document.createElement('td');
+        tdCity.textContent = d.city || '\u2014';
+        tr.appendChild(tdCity);
+
+        // Checks cell
+        var tdChecks = document.createElement('td');
+        var checks = d.checks || [];
+        if (checks.length === 0) {
+          tdChecks.textContent = '\u2014';
+        } else {
+          checks.forEach(function(c) {
+            var badge = safeBadge(c, 'land');
+            badge.style.marginRight = '4px';
+            tdChecks.appendChild(badge);
+          });
+        }
+        tr.appendChild(tdChecks);
+
+        // Link type cell
+        var tdLink = document.createElement('td');
+        var linkType = d.linkType || 'all';
+        tdLink.appendChild(safeBadge(linkType, linkType));
+        tr.appendChild(tdLink);
+
+        // Actions cell
+        var tdActions = document.createElement('td');
+        var actionsDiv = document.createElement('div');
+        actionsDiv.className = 'actions-cell';
+
+        var editBtn = document.createElement('button');
+        editBtn.className = 'btn btn-outline btn-xs';
+        editBtn.title = 'Edit';
+        var editIcon = document.createElement('i');
+        editIcon.className = 'fa-solid fa-pen-to-square';
+        editBtn.appendChild(editIcon);
+        editBtn.addEventListener('click', (function(id) { return function() { openDistrictModal(id); }; })(d.id));
+        actionsDiv.appendChild(editBtn);
+
+        var delBtn = document.createElement('button');
+        delBtn.className = 'btn btn-danger btn-xs';
+        delBtn.title = 'Delete';
+        var delIcon = document.createElement('i');
+        delIcon.className = 'fa-solid fa-trash';
+        delBtn.appendChild(delIcon);
+        delBtn.addEventListener('click', (function(id, name) { return function() { confirmDeleteDistrict(id, name); }; })(d.id, d.name || ''));
+        actionsDiv.appendChild(delBtn);
+
+        tdActions.appendChild(actionsDiv);
+        tr.appendChild(tdActions);
+
+        tbody.appendChild(tr);
+      });
     }
 
     // ── Render Listings Table ──────────────────────────────
     function renderTable() {
-      const tbody = document.getElementById('tableBody');
-      const search = document.getElementById('searchInput').value.toLowerCase();
-      const filterType = document.getElementById('filterType').value;
-      const filterCity = document.getElementById('filterCity').value;
+      var tbody = document.getElementById('tableBody');
+      var search = document.getElementById('searchInput').value.toLowerCase();
+      var filterType = document.getElementById('filterType').value;
+      var filterCity = document.getElementById('filterCity').value;
 
-      let filtered = allListings;
+      var filtered = allListings;
 
-      if (filterType !== 'all') filtered = filtered.filter(l => l.type === filterType);
-      if (filterCity !== 'all') filtered = filtered.filter(l => l.city === filterCity);
+      if (filterType !== 'all') filtered = filtered.filter(function(l) { return l.type === filterType; });
+      if (filterCity !== 'all') filtered = filtered.filter(function(l) { return l.city === filterCity; });
       if (search) {
-        filtered = filtered.filter(l =>
-          l.title.toLowerCase().includes(search) ||
-          l.location.toLowerCase().includes(search) ||
-          l.area.toLowerCase().includes(search) ||
-          l.city.toLowerCase().includes(search)
-        );
+        filtered = filtered.filter(function(l) {
+          return l.title.toLowerCase().indexOf(search) !== -1 ||
+            l.location.toLowerCase().indexOf(search) !== -1 ||
+            (l.area || '').toLowerCase().indexOf(search) !== -1 ||
+            (l.city || '').toLowerCase().indexOf(search) !== -1;
+        });
       }
 
+      clearContainer(tbody);
+
       if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" class="empty-state-admin"><i class="fa-solid fa-folder-open"></i><p>No listings found</p></td></tr>`;
+        var emptyTr = document.createElement('tr');
+        var emptyTd = document.createElement('td');
+        emptyTd.colSpan = 10;
+        emptyTd.className = 'empty-state-admin';
+        var emptyIcon = document.createElement('i');
+        emptyIcon.className = 'fa-solid fa-folder-open';
+        emptyTd.appendChild(emptyIcon);
+        var emptyP = document.createElement('p');
+        emptyP.textContent = 'No listings found';
+        emptyTd.appendChild(emptyP);
+        emptyTr.appendChild(emptyTd);
+        tbody.appendChild(emptyTr);
         return;
       }
 
-      tbody.innerHTML = filtered.map(l => `
-        <tr>
-          <td><img src="${l.images && l.images.length > 0 ? (typeof l.images[0] === 'string' ? l.images[0] : l.images[0].url) : ''}" class="td-img" alt="${l.title}" onerror="this.style.display='none'"></td>
-          <td class="td-title" title="${l.title}">${l.title}</td>
-          <td><span class="badge badge-${l.type}">${l.type === 'land' ? 'Land' : l.type === 'sale' ? 'For Sale' : 'For Rent'}</span></td>
-          <td style="font-weight:600;white-space:nowrap;">₦${l.price.toLocaleString()}${l.priceUnit ? ' <small style="color:#94a3b8;font-weight:400;">' + l.priceUnit + '</small>' : ''}</td>
-          <td style="color:#64748b;">${l.location}</td>
-          <td>${l.bedrooms || '—'}</td>
-          <td>${l.bathrooms || '—'}</td>
-          <td>${l.featured ? '<span class="badge badge-featured">★ Featured</span>' : '—'}</td>
-          <td>${l.verified ? '<span style="color:#16a34a;"><i class="fa-solid fa-circle-check"></i> Verified</span>' : '<span style="color:#94a3b8;">—</span>'}</td>
-          <td>
-            <div class="actions-cell">
-              <button class="btn btn-outline btn-xs" onclick="openEditModal(${l.id})" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>
-              <button class="btn btn-danger btn-xs" onclick="confirmDelete(${l.id}, '${l.title.replace(/'/g, "\\'")}')" title="Delete"><i class="fa-solid fa-trash"></i></button>
-            </div>
-          </td>
-        </tr>
-      `).join('');
+      filtered.forEach(function(l) {
+        var tr = document.createElement('tr');
+
+        // Image cell
+        var tdImg = document.createElement('td');
+        var imgSrc = '';
+        if (l.images && l.images.length > 0) {
+          imgSrc = typeof l.images[0] === 'string' ? l.images[0] : l.images[0].url;
+        }
+        if (imgSrc && isSafeUrl(imgSrc)) {
+          tdImg.appendChild(safeImg(imgSrc, l.title || '', 'td-img'));
+        }
+        tr.appendChild(tdImg);
+
+        // Title cell
+        var tdTitle = document.createElement('td');
+        tdTitle.className = 'td-title';
+        tdTitle.title = l.title || '';
+        tdTitle.textContent = l.title || '';
+        tr.appendChild(tdTitle);
+
+        // Type cell
+        var tdType = document.createElement('td');
+        var typeLabel = l.type === 'land' ? 'Land' : l.type === 'sale' ? 'For Sale' : 'For Rent';
+        tdType.appendChild(safeBadge(typeLabel, l.type));
+        tr.appendChild(tdType);
+
+        // Price cell
+        var tdPrice = document.createElement('td');
+        tdPrice.style.fontWeight = '600';
+        tdPrice.style.whiteSpace = 'nowrap';
+        tdPrice.textContent = '\u20a6' + l.price.toLocaleString();
+        if (l.priceUnit) {
+          tdPrice.appendChild(document.createTextNode(' '));
+          var priceSmall = document.createElement('small');
+          priceSmall.style.color = '#94a3b8';
+          priceSmall.style.fontWeight = '400';
+          priceSmall.textContent = l.priceUnit;
+          tdPrice.appendChild(priceSmall);
+        }
+        tr.appendChild(tdPrice);
+
+        // Location cell
+        var tdLoc = document.createElement('td');
+        tdLoc.style.color = '#64748b';
+        tdLoc.textContent = l.location || '';
+        tr.appendChild(tdLoc);
+
+        // Beds cell
+        var tdBeds = document.createElement('td');
+        tdBeds.textContent = l.bedrooms != null ? String(l.bedrooms) : '\u2014';
+        tr.appendChild(tdBeds);
+
+        // Baths cell
+        var tdBaths = document.createElement('td');
+        tdBaths.textContent = l.bathrooms != null ? String(l.bathrooms) : '\u2014';
+        tr.appendChild(tdBaths);
+
+        // Featured cell
+        var tdFeatured = document.createElement('td');
+        if (l.featured) {
+          tdFeatured.appendChild(safeBadge('\u2605 Featured', 'featured'));
+        } else {
+          tdFeatured.textContent = '\u2014';
+        }
+        tr.appendChild(tdFeatured);
+
+        // Verified cell
+        var tdVerified = document.createElement('td');
+        if (l.verified) {
+          tdVerified.style.color = '#16a34a';
+          var verIcon = document.createElement('i');
+          verIcon.className = 'fa-solid fa-circle-check';
+          tdVerified.appendChild(verIcon);
+          tdVerified.appendChild(document.createTextNode(' Verified'));
+        } else {
+          tdVerified.style.color = '#94a3b8';
+          tdVerified.textContent = '\u2014';
+        }
+        tr.appendChild(tdVerified);
+
+        // Actions cell
+        var tdActions = document.createElement('td');
+        var actionsDiv = document.createElement('div');
+        actionsDiv.className = 'actions-cell';
+
+        var editBtn = document.createElement('button');
+        editBtn.className = 'btn btn-outline btn-xs';
+        editBtn.title = 'Edit';
+        var editIcon = document.createElement('i');
+        editIcon.className = 'fa-solid fa-pen-to-square';
+        editBtn.appendChild(editIcon);
+        editBtn.addEventListener('click', (function(id) { return function() { openEditModal(id); }; })(l.id));
+        actionsDiv.appendChild(editBtn);
+
+        var delBtn = document.createElement('button');
+        delBtn.className = 'btn btn-danger btn-xs';
+        delBtn.title = 'Delete';
+        var delIcon = document.createElement('i');
+        delIcon.className = 'fa-solid fa-trash';
+        delBtn.appendChild(delIcon);
+        delBtn.addEventListener('click', (function(id, title) { return function() { confirmDelete(id, title); }; })(l.id, l.title));
+        actionsDiv.appendChild(delBtn);
+
+        tdActions.appendChild(actionsDiv);
+        tr.appendChild(tdActions);
+
+        tbody.appendChild(tr);
+      });
     }
 
     // ── Listing Modal ──────────────────────────────────────
@@ -1216,12 +1472,14 @@
       document.getElementById('formAgentPhone').value = listing.agent?.phone || '';
       document.getElementById('formAgentRole').value = listing.agent?.role || '';
       document.getElementById('formAgentAvatar').value = listing.agent?.avatar || '';
-      // Avatar preview
+      // Avatar preview (safe DOM)
       var avatarPreview = document.getElementById('avatarUploadPreview');
       if (avatarPreview) {
-        avatarPreview.innerHTML = '';
-        if (listing.agent?.avatar) {
-          avatarPreview.innerHTML = '<div class="upload-preview-item"><img src="'+listing.agent.avatar+'" alt=""><button class="remove-btn" onclick="this.parentElement.remove();document.getElementById(\'formAgentAvatar\').value=\'\'">&times;</button></div>';
+        clearContainer(avatarPreview);
+        if (listing.agent && listing.agent.avatar && isSafeUrl(listing.agent.avatar)) {
+          avatarPreview.appendChild(createPreviewItem(listing.agent.avatar, function() {
+            document.getElementById('formAgentAvatar').value = '';
+          }));
         }
       }
       document.getElementById('formAvailability').value = listing.availability || 'Immediately';
@@ -1244,20 +1502,18 @@
       const images = (listing.images || []).map(function(i) { return typeof i === 'string' ? i : i.url; });
       document.getElementById('formImages').value = images.join('\n');
 
-      // Populate upload preview
+      // Populate upload preview (safe DOM)
       var preview = document.getElementById('adminUploadPreview');
-      if (preview) { preview.innerHTML = ''; }
+      if (preview) { clearContainer(preview); }
       adminUploadedUrls = images.slice();
       // Build preview from existing URLs
       images.forEach(function(u) {
         if (!u) return;
-        var div = document.createElement('div'); div.className = 'upload-preview-item';
-        var isImg = /\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i.test(u);
-        var isPdf = /\.pdf(\?|$)/i.test(u);
-        div.innerHTML = isImg
-          ? '<img src="'+u+'" alt=""><button class="remove-btn" onclick="this.parentElement.remove();adminUploadedUrls=adminUploadedUrls.filter(function(x){return x!==\''+u+'\'})">&times;</button>'
-          : '<i class="fa-solid fa-'+(isPdf?'file-pdf':'file')+'" style="font-size:1.5rem;color:#64748b;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)"></i><button class="remove-btn" onclick="this.parentElement.remove();adminUploadedUrls=adminUploadedUrls.filter(function(x){return x!==\''+u+'\'})">&times;</button>';
-        if (preview) preview.appendChild(div);
+        if (preview) {
+          preview.appendChild(createPreviewItem(u, function() {
+            adminUploadedUrls = adminUploadedUrls.filter(function(x) { return x !== u; });
+          }));
+        }
       });
 
       document.getElementById('listingModal').classList.add('active');
@@ -1288,11 +1544,9 @@
       renderAmenities();
       document.getElementById('formImages').value = '';
       adminUploadedUrls = [];
-      var preview = document.getElementById('adminUploadPreview');
-      if (preview) preview.innerHTML = '';
-      document.getElementById('districtUploadPreview').innerHTML = '';
-      document.getElementById('avatarUploadPreview').innerHTML = '';
-      document.getElementById('adminUploadPreview').innerHTML = '';
+      clearContainer('adminUploadPreview');
+      clearContainer('districtUploadPreview');
+      clearContainer('avatarUploadPreview');
     }
 
     function onTypeChange() {
@@ -1326,9 +1580,18 @@
     }
 
     function renderAmenities() {
-      document.getElementById('amenityTags').innerHTML = currentAmenities.map((a, i) => `
-        <span class="amenity-tag">${a} <button onclick="removeAmenity(${i})">&times;</button></span>
-      `).join('');
+      var container = document.getElementById('amenityTags');
+      clearContainer(container);
+      currentAmenities.forEach(function(a, i) {
+        var tag = document.createElement('span');
+        tag.className = 'amenity-tag';
+        tag.textContent = a + ' ';
+        var btn = document.createElement('button');
+        btn.textContent = '\u00d7';
+        btn.addEventListener('click', (function(idx) { return function() { removeAmenity(idx); }; })(i));
+        tag.appendChild(btn);
+        container.appendChild(tag);
+      });
     }
 
     document.getElementById('amenityInput').addEventListener('keydown', function(e) {
@@ -1339,12 +1602,29 @@
     function addImgUrl() {
       var container = document.getElementById('imgUrlsList');
       if (!container) return;
-      const row = document.createElement('div');
+      var row = document.createElement('div');
       row.className = 'img-url-row';
-      row.innerHTML = `
-        <input type="text" placeholder="https://images.unsplash.com/photo-…" class="img-url-input">
-        <button type="button" class="btn btn-outline btn-xs" onclick="removeImgUrl(this)"><i class="fa-solid fa-xmark"></i></button>
-        <button type="button" class="btn btn-outline btn-xs" onclick="addImgUrl()"><i class="fa-solid fa-plus"></i></button>`;
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = 'https://images.unsplash.com/photo-\u2026';
+      input.className = 'img-url-input';
+      row.appendChild(input);
+      var removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'btn btn-outline btn-xs';
+      var rmIcon = document.createElement('i');
+      rmIcon.className = 'fa-solid fa-xmark';
+      removeBtn.appendChild(rmIcon);
+      removeBtn.addEventListener('click', function() { removeImgUrl(removeBtn); });
+      row.appendChild(removeBtn);
+      var addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'btn btn-outline btn-xs';
+      var addIcon = document.createElement('i');
+      addIcon.className = 'fa-solid fa-plus';
+      addBtn.appendChild(addIcon);
+      addBtn.addEventListener('click', addImgUrl);
+      row.appendChild(addBtn);
       container.appendChild(row);
     }
 
@@ -1468,11 +1748,9 @@
           data.data.forEach(function(r) {
             if (!r.error) {
               adminUploadedUrls.push(r.url);
-              var div = document.createElement('div'); div.className = 'upload-preview-item';
-              div.innerHTML = r.type.startsWith('image/') 
-                ? '<img src="'+r.url+'" alt=""><button class="remove-btn" onclick="this.parentElement.remove();adminUploadedUrls=adminUploadedUrls.filter(function(u){return u!==\''+r.url+'\'})">&times;</button>'
-                : '<i class="fa-solid fa-'+(r.type==='application/pdf'?'file-pdf':'file')+'" style="font-size:1.5rem;color:#64748b;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)"></i><button class="remove-btn" onclick="this.parentElement.remove();adminUploadedUrls=adminUploadedUrls.filter(function(u){return u!==\''+r.url+'\'})">&times;</button>';
-              preview.appendChild(div);
+              preview.appendChild(createPreviewItem(r.url, function() {
+                adminUploadedUrls = adminUploadedUrls.filter(function(u) { return u !== r.url; });
+              }));
               var ta = document.getElementById('formImages');
               ta.value = (ta.value.trim() + '\n' + r.url).trim();
             }
@@ -1500,10 +1778,11 @@
             districtUploadedUrls.push(r.url);
             document.getElementById('districtFormImage').value = r.url;
             var preview = document.getElementById('districtUploadPreview');
-            var div = document.createElement('div'); div.className = 'upload-preview-item';
-            div.innerHTML = '<img src="'+r.url+'" alt=""><button class="remove-btn" onclick="this.parentElement.remove();document.getElementById(\'districtFormImage\').value=\'\';districtUploadedUrls=[]">&times;</button>';
-            preview.innerHTML = '';
-            preview.appendChild(div);
+            clearContainer(preview);
+            preview.appendChild(createPreviewItem(r.url, function() {
+              document.getElementById('districtFormImage').value = '';
+              districtUploadedUrls = [];
+            }));
             showToast('District image uploaded!', 'success');
           } else {
             showToast('Upload failed', 'error');
@@ -1529,7 +1808,10 @@
           if (!r.error) {
             document.getElementById('formAgentAvatar').value = r.url;
             var preview = document.getElementById('avatarUploadPreview');
-            preview.innerHTML = '<div class="upload-preview-item"><img src="'+r.url+'" alt=""><button class="remove-btn" onclick="this.parentElement.remove();document.getElementById(\'formAgentAvatar\').value=\'\'">&times;</button></div>';
+            clearContainer(preview);
+            preview.appendChild(createPreviewItem(r.url, function() {
+              document.getElementById('formAgentAvatar').value = '';
+            }));
             showToast('Avatar uploaded!', 'success');
           } else {
             showToast('Upload failed', 'error');
@@ -1555,7 +1837,10 @@
           if (!r.error) {
             document.getElementById('userFormAvatar').value = r.url;
             var preview = document.getElementById('userAvatarUploadPreview');
-            preview.innerHTML = '<div class="upload-preview-item"><img src="'+r.url+'" alt=""><button class="remove-btn" onclick="this.parentElement.remove();document.getElementById(\'userFormAvatar\').value=\'\'">&times;</button></div>';
+            clearContainer(preview);
+            preview.appendChild(createPreviewItem(r.url, function() {
+              document.getElementById('userFormAvatar').value = '';
+            }));
             showToast('Avatar uploaded!', 'success');
           } else {
             showToast('Upload failed', 'error');
@@ -1582,13 +1867,16 @@
         document.getElementById('districtFormLinkType').value = district.linkType || 'all';
         document.getElementById('districtFormImage').value = district.image || '';
         document.getElementById('districtFormDescription').value = district.description || '';
-        // District image preview
+        // District image preview (safe DOM)
         districtUploadedUrls = district.image ? [district.image] : [];
         var distPreview = document.getElementById('districtUploadPreview');
         if (distPreview) {
-          distPreview.innerHTML = '';
-          if (district.image) {
-            distPreview.innerHTML = '<div class="upload-preview-item"><img src="'+district.image+'" alt=""><button class="remove-btn" onclick="this.parentElement.remove();document.getElementById(\'districtFormImage\').value=\'\';districtUploadedUrls=[]">&times;</button></div>';
+          clearContainer(distPreview);
+          if (district.image && isSafeUrl(district.image)) {
+            distPreview.appendChild(createPreviewItem(district.image, function() {
+              document.getElementById('districtFormImage').value = '';
+              districtUploadedUrls = [];
+            }));
           }
         }
         currentDistrictChecks = [...(district.checks || [])];
@@ -1615,7 +1903,7 @@
       document.getElementById('districtFormLinkType').value = 'all';
       currentDistrictChecks = [];
       districtUploadedUrls = [];
-      document.getElementById('districtUploadPreview').innerHTML = '';
+      clearContainer('districtUploadPreview');
       renderDistrictChecks();
     }
 
@@ -1637,9 +1925,18 @@
     }
 
     function renderDistrictChecks() {
-      document.getElementById('districtCheckTags').innerHTML = currentDistrictChecks.map((c, i) => `
-        <span class="check-tag">${c} <button onclick="removeDistrictCheck(${i})">&times;</button></span>
-      `).join('');
+      var container = document.getElementById('districtCheckTags');
+      clearContainer(container);
+      currentDistrictChecks.forEach(function(c, i) {
+        var tag = document.createElement('span');
+        tag.className = 'check-tag';
+        tag.textContent = c + ' ';
+        var btn = document.createElement('button');
+        btn.textContent = '\u00d7';
+        btn.addEventListener('click', (function(idx) { return function() { removeDistrictCheck(idx); }; })(i));
+        tag.appendChild(btn);
+        container.appendChild(tag);
+      });
     }
 
     document.getElementById('districtCheckInput').addEventListener('keydown', function(e) {
@@ -1764,29 +2061,120 @@
     // ── Users Management ───────────────────────────────────
     async function loadUsersData() {
       try {
-        const res = await apiFetch('/auth/users');
-        const data = await res.json();
-        const users = data.data || [];
-        const tbody = document.getElementById('usersTableBody');
+        var res = await apiFetch('/auth/users');
+        var data = await res.json();
+        var users = data.data || [];
+        var tbody = document.getElementById('usersTableBody');
+        clearContainer(tbody);
+
         if (users.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="8" class="empty-state-admin"><p>No users found</p></td></tr>';
+          var tr = document.createElement('tr');
+          var td = document.createElement('td');
+          td.colSpan = 8;
+          td.className = 'empty-state-admin';
+          var p = document.createElement('p');
+          p.textContent = 'No users found';
+          td.appendChild(p);
+          tr.appendChild(td);
+          tbody.appendChild(tr);
           return;
         }
-        tbody.innerHTML = users.map(u => `<tr>
-          <td style="font-weight:600;">${u.name}</td>
-          <td>${u.email}</td>
-          <td><span class="badge badge-${u.role==='admin'?'sale':'rent'}">${u.role}</span></td>
-          <td>${u.account_status==='banned'?'<span style="color:#dc2626;">🚫 Banned</span>':'<span style="color:#16a34a;">✅ Active</span>'}</td>
-          <td style="color:#64748b;">${u.last_login_at || 'Never'}</td>
-          <td>${u.login_count || 0}</td>
-          <td style="color:#64748b;">${(u.created_at||'').split(' ')[0]}</td>
-          <td class="actions-cell">
-            ${u.account_status==='banned'
-              ? '<button class="btn btn-success btn-xs" onclick="unbanUser('+u.id+')" title="Unban"><i class="fa-solid fa-unlock"></i></button>'
-              : '<button class="btn btn-outline btn-xs" onclick="banUser('+u.id+',\''+u.name+'\')" title="Ban"><i class="fa-solid fa-ban"></i></button>'}
-            <button class="btn btn-outline btn-xs" onclick="openUserModal(${u.id})" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>
-            ${u.role!=='admin' ? '<button class="btn btn-danger btn-xs" onclick="deleteUser('+u.id+',\''+u.name+'\')" title="Delete"><i class="fa-solid fa-trash"></i></button>' : ''}
-          </td></tr>`).join('');
+
+        users.forEach(function(u) {
+          var tr = document.createElement('tr');
+
+          // Name
+          var tdName = document.createElement('td');
+          tdName.style.fontWeight = '600';
+          tdName.textContent = u.name || '';
+          tr.appendChild(tdName);
+
+          // Email
+          var tdEmail = document.createElement('td');
+          tdEmail.textContent = u.email || '';
+          tr.appendChild(tdEmail);
+
+          // Role
+          var tdRole = document.createElement('td');
+          var roleCls = u.role === 'admin' ? 'sale' : 'rent';
+          tdRole.appendChild(safeBadge(u.role || 'user', roleCls));
+          tr.appendChild(tdRole);
+
+          // Status
+          var tdStatus = document.createElement('td');
+          if (u.account_status === 'banned') {
+            tdStatus.style.color = '#dc2626';
+            tdStatus.textContent = '\u26d4 Banned';
+          } else {
+            tdStatus.style.color = '#16a34a';
+            tdStatus.textContent = '\u2705 Active';
+          }
+          tr.appendChild(tdStatus);
+
+          // Last login
+          var tdLogin = document.createElement('td');
+          tdLogin.style.color = '#64748b';
+          tdLogin.textContent = u.last_login_at || 'Never';
+          tr.appendChild(tdLogin);
+
+          // Login count
+          var tdCount = document.createElement('td');
+          tdCount.textContent = u.login_count != null ? String(u.login_count) : '0';
+          tr.appendChild(tdCount);
+
+          // Joined
+          var tdJoined = document.createElement('td');
+          tdJoined.style.color = '#64748b';
+          tdJoined.textContent = (u.created_at || '').split(' ')[0];
+          tr.appendChild(tdJoined);
+
+          // Actions
+          var tdActions = document.createElement('td');
+          tdActions.className = 'actions-cell';
+
+          if (u.account_status === 'banned') {
+            var unbanBtn = document.createElement('button');
+            unbanBtn.className = 'btn btn-success btn-xs';
+            unbanBtn.title = 'Unban';
+            var unbanIcon = document.createElement('i');
+            unbanIcon.className = 'fa-solid fa-unlock';
+            unbanBtn.appendChild(unbanIcon);
+            unbanBtn.addEventListener('click', (function(id) { return function() { unbanUser(id); }; })(u.id));
+            tdActions.appendChild(unbanBtn);
+          } else {
+            var banBtn = document.createElement('button');
+            banBtn.className = 'btn btn-outline btn-xs';
+            banBtn.title = 'Ban';
+            var banIcon = document.createElement('i');
+            banIcon.className = 'fa-solid fa-ban';
+            banBtn.appendChild(banIcon);
+            banBtn.addEventListener('click', (function(id, name) { return function() { banUser(id, name); }; })(u.id, u.name));
+            tdActions.appendChild(banBtn);
+          }
+
+          var editBtn = document.createElement('button');
+          editBtn.className = 'btn btn-outline btn-xs';
+          editBtn.title = 'Edit';
+          var editIcon = document.createElement('i');
+          editIcon.className = 'fa-solid fa-pen-to-square';
+          editBtn.appendChild(editIcon);
+          editBtn.addEventListener('click', (function(id) { return function() { openUserModal(id); }; })(u.id));
+          tdActions.appendChild(editBtn);
+
+          if (u.role !== 'admin') {
+            var delBtn = document.createElement('button');
+            delBtn.className = 'btn btn-danger btn-xs';
+            delBtn.title = 'Delete';
+            var delIcon = document.createElement('i');
+            delIcon.className = 'fa-solid fa-trash';
+            delBtn.appendChild(delIcon);
+            delBtn.addEventListener('click', (function(id, name) { return function() { deleteUser(id, name); }; })(u.id, u.name));
+            tdActions.appendChild(delBtn);
+          }
+
+          tr.appendChild(tdActions);
+          tbody.appendChild(tr);
+        });
       } catch(e) { console.error(e); }
     }
 
@@ -1861,12 +2249,14 @@
             document.getElementById('userFormRole').value = u.role || 'user';
             document.getElementById('userFormPhone').value = u.phone || '';
             document.getElementById('userFormAvatar').value = u.avatar || '';
-            // User avatar preview
+            // User avatar preview (safe DOM)
             var uaPreview = document.getElementById('userAvatarUploadPreview');
             if (uaPreview) {
-              uaPreview.innerHTML = '';
-              if (u.avatar) {
-                uaPreview.innerHTML = '<div class="upload-preview-item"><img src="'+u.avatar+'" alt=""><button class="remove-btn" onclick="this.parentElement.remove();document.getElementById(\'userFormAvatar\').value=\'\'">&times;</button></div>';
+              clearContainer(uaPreview);
+              if (u.avatar && isSafeUrl(u.avatar)) {
+                uaPreview.appendChild(createPreviewItem(u.avatar, function() {
+                  document.getElementById('userFormAvatar').value = '';
+                }));
               }
             }
             document.getElementById('userFormPassword').value = '';
@@ -1891,7 +2281,7 @@
       document.getElementById('userFormRole').value = 'user';
       document.getElementById('userFormPassword').value = '';
       document.getElementById('userFormAvatar').value = '';
-      document.getElementById('userAvatarUploadPreview').innerHTML = '';
+      clearContainer('userAvatarUploadPreview');
     }
 
     async function saveUser() {
@@ -1939,14 +2329,20 @@
     // ── Cities ─────────────────────────────────────────────
     async function loadCities() {
       try {
-        const res = await fetch('/api/cities');
-        const data = await res.json();
-        const cities = data.data || [];
-        document.querySelectorAll('select[id$="City"]').forEach(sel => {
+        var res = await fetch('/api/cities');
+        var data = await res.json();
+        var cities = data.data || [];
+        document.querySelectorAll('select[id$="City"]').forEach(function(sel) {
           if (sel.dataset.dynamic) return;
           sel.dataset.dynamic = '1';
-          const val = sel.value;
-          sel.innerHTML = cities.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+          var val = sel.value;
+          clearContainer(sel);
+          cities.forEach(function(c) {
+            var opt = document.createElement('option');
+            opt.value = c.name;
+            opt.textContent = c.name;
+            sel.appendChild(opt);
+          });
           if (val) sel.value = val;
         });
       } catch(e) {}

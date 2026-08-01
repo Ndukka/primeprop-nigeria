@@ -1,2 +1,4 @@
--- Update admin password with a bcryptjs-compatible hash
-UPDATE users SET password_hash = '$2a$10$qarpxhTSlZDwhn38EEHlj.Q5oQgnvH0Mp9csmSSiaGYri28QyymAi' WHERE email = 'admin@primeprop.ng';
+-- REMOVED: Embedded admin password update (PP-SEC-007).
+-- This migration previously updated the admin password hash in the users table.
+-- Admin credentials must now be bootstrapped separately via wrangler CLI or a one-time setup script.
+-- No credential-seeding statements remain in any migration.

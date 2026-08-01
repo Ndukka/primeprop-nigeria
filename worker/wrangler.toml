@@ -15,11 +15,10 @@ database_id = "162aa04a-f169-43ea-a336-4365350dda4a"
 binding = "IMAGES"
 bucket_name = "primeprop-images"
 
-# Environment variables (secrets set via `wrangler secret put`)
+# Environment variables
 [vars]
 ENVIRONMENT = "production"
-# Note: JWT_SECRET is set via `wrangler secret put JWT_SECRET` — hardcoded here as fallback only
-JWT_SECRET = "8ede7810ed2db72aaeeefa0cf342457d3be194584cea2b3d071079da9caccb92"
+# JWT_SECRET is set via `wrangler secret put JWT_SECRET` — NEVER committed to Git
 
 # Durable Objects for rate limiting
 [[migrations]]

@@ -175,6 +175,70 @@
     function getCsrf() { return (document.cookie.match(/(?:^|;\s*)pp_csrf=([^;]*)/) || [])[1] || ''; }
     let USER = null; // Fetched from session
 
+    // ── Safe DOM helpers (PP-SEC-002) ────────────────────────
+    function isSafeUrl(url) {
+      if (!url || typeof url !== 'string') return false;
+      return url.startsWith('https://');
+    }
+
+    function safeTextEl(tag, text) {
+      var el = document.createElement(tag);
+      el.textContent = text != null ? String(text) : '';
+      return el;
+    }
+
+    function safeBadge(text, type) {
+      var valid = { rent:1, sale:1, land:1 };
+      var el = document.createElement('span');
+      el.className = 'badge badge-' + (valid[type] ? type : 'rent');
+      el.textContent = text != null ? String(text) : '';
+      return el;
+    }
+
+    function safeImg(url, alt, className) {
+      var img = document.createElement('img');
+      if (isSafeUrl(url)) img.src = url;
+      img.alt = alt || '';
+      if (className) img.className = className;
+      img.onerror = function() { this.style.display = 'none'; };
+      return img;
+    }
+
+    function createPreviewItem(url, onRemove) {
+      var div = document.createElement('div');
+      div.className = 'upload-preview-item';
+      if (url && isSafeUrl(url)) {
+        var isImg = /\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i.test(url);
+        if (isImg) {
+          var img = document.createElement('img');
+          img.src = url;
+          img.alt = '';
+          div.appendChild(img);
+        } else {
+          var isPdf = /\.pdf(\?|$)/i.test(url);
+          var icon = document.createElement('i');
+          icon.className = 'fa-solid fa-' + (isPdf ? 'file-pdf' : 'file');
+          icon.style.cssText = 'font-size:1.5rem;color:#64748b;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)';
+          div.appendChild(icon);
+        }
+      }
+      var btn = document.createElement('button');
+      btn.className = 'remove-btn';
+      btn.textContent = '\u00d7';
+      btn.addEventListener('click', function() {
+        div.remove();
+        if (onRemove) onRemove();
+      });
+      div.appendChild(btn);
+      return div;
+    }
+
+    function clearContainer(id) {
+      var el = typeof id === 'string' ? document.getElementById(id) : id;
+      if (el) { while (el.firstChild) el.removeChild(el.firstChild); }
+      return el;
+    }
+
     // Authenticated fetch wrapper — uses httpOnly cookie + CSRF
     async function apiFetch(url, opts) {
       opts = opts || {};
@@ -216,7 +280,13 @@
           var sel = document.getElementById('formCity');
           if (sel) {
             var current = sel.value;
-            sel.innerHTML = cities.map(function(c){ return '<option value="'+c.name+'">'+c.name+'</option>'; }).join('');
+            clearContainer(sel);
+            cities.forEach(function(c) {
+              var opt = document.createElement('option');
+              opt.value = c.name;
+              opt.textContent = c.name;
+              sel.appendChild(opt);
+            });
             if (current) sel.value = current;
           }
         }
@@ -250,25 +320,107 @@
 
     function renderTable() {
       var tbody = document.getElementById('tableBody');
+      clearContainer(tbody);
+
       if (myListings.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><i class="fa-solid fa-folder-open"></i><p>No listings yet. Click "Add New Listing" to get started.</p></td></tr>';
+        var tr = document.createElement('tr');
+        var td = document.createElement('td');
+        td.colSpan = 7;
+        td.className = 'empty-state';
+        var icon = document.createElement('i');
+        icon.className = 'fa-solid fa-folder-open';
+        td.appendChild(icon);
+        var p = document.createElement('p');
+        p.textContent = 'No listings yet. Click "Add New Listing" to get started.';
+        td.appendChild(p);
+        tr.appendChild(td);
+        tbody.appendChild(tr);
         return;
       }
-      tbody.innerHTML = myListings.map(function(l) {
-        var img = (l.images && l.images.length>0) ? (typeof l.images[0]==='string' ? l.images[0] : l.images[0].url) : '';
-        return '<tr>' +
-          '<td>' + (img ? '<img src="'+img+'" style="width:50px;height:36px;object-fit:cover;border-radius:4px;" onerror="this.style.display=\'none\'">' : '—') + '</td>' +
-          '<td style="font-weight:600;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+l.title+'</td>' +
-          '<td><span class="badge badge-'+l.type+'">'+l.type+'</span></td>' +
-          '<td style="white-space:nowrap;">₦'+l.price.toLocaleString()+ (l.price_unit ? ' <small style="color:#94a3b8;">'+l.price_unit+'</small>' : '') +'</td>' +
-          '<td style="color:#64748b;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+l.location+'</td>' +
-          '<td>'+(l.verified?'<span style="color:#16a34a;">✓ Verified</span>':(l.featured?'<span style="color:#f59e0b;">★ Featured</span>':'—'))+'</td>' +
-          '<td style="display:flex;gap:4px;">' +
-            '<button class="btn btn-outline btn-xs" onclick="openEditModal('+l.id+')" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>' +
-            '<button class="btn btn-danger btn-xs" onclick="deleteListing('+l.id+',\''+l.title.replace(/'/g,"\\'")+'\')" title="Delete"><i class="fa-solid fa-trash"></i></button>' +
-          '</td>' +
-        '</tr>';
-      }).join('');
+
+      myListings.forEach(function(l) {
+        var tr = document.createElement('tr');
+        var img = (l.images && l.images.length > 0) ? (typeof l.images[0] === 'string' ? l.images[0] : l.images[0].url) : '';
+
+        // Image cell
+        var tdImg = document.createElement('td');
+        if (img && isSafeUrl(img)) {
+          var imgEl = safeImg(img, l.title || '');
+          imgEl.style.cssText = 'width:50px;height:36px;object-fit:cover;border-radius:4px;';
+          tdImg.appendChild(imgEl);
+        } else {
+          tdImg.textContent = '\u2014';
+        }
+        tr.appendChild(tdImg);
+
+        // Title cell
+        var tdTitle = document.createElement('td');
+        tdTitle.style.cssText = 'font-weight:600;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        tdTitle.textContent = l.title || '';
+        tr.appendChild(tdTitle);
+
+        // Type cell
+        var tdType = document.createElement('td');
+        tdType.appendChild(safeBadge(l.type, l.type));
+        tr.appendChild(tdType);
+
+        // Price cell
+        var tdPrice = document.createElement('td');
+        tdPrice.style.whiteSpace = 'nowrap';
+        tdPrice.textContent = '\u20a6' + l.price.toLocaleString();
+        if (l.price_unit) {
+          tdPrice.appendChild(document.createTextNode(' '));
+          var priceSmall = document.createElement('small');
+          priceSmall.style.color = '#94a3b8';
+          priceSmall.textContent = l.price_unit;
+          tdPrice.appendChild(priceSmall);
+        }
+        tr.appendChild(tdPrice);
+
+        // Location cell
+        var tdLoc = document.createElement('td');
+        tdLoc.style.cssText = 'color:#64748b;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        tdLoc.textContent = l.location || '';
+        tr.appendChild(tdLoc);
+
+        // Status cell
+        var tdStatus = document.createElement('td');
+        if (l.verified) {
+          tdStatus.style.color = '#16a34a';
+          tdStatus.textContent = '\u2713 Verified';
+        } else if (l.featured) {
+          tdStatus.style.color = '#f59e0b';
+          tdStatus.textContent = '\u2605 Featured';
+        } else {
+          tdStatus.textContent = '\u2014';
+        }
+        tr.appendChild(tdStatus);
+
+        // Actions cell
+        var tdActions = document.createElement('td');
+        tdActions.style.cssText = 'display:flex;gap:4px;';
+
+        var editBtn = document.createElement('button');
+        editBtn.className = 'btn btn-outline btn-xs';
+        editBtn.title = 'Edit';
+        var editIcon = document.createElement('i');
+        editIcon.className = 'fa-solid fa-pen-to-square';
+        editBtn.appendChild(editIcon);
+        editBtn.addEventListener('click', (function(id) { return function() { openEditModal(id); }; })(l.id));
+        tdActions.appendChild(editBtn);
+
+        var delBtn = document.createElement('button');
+        delBtn.className = 'btn btn-danger btn-xs';
+        delBtn.title = 'Delete';
+        var delIcon = document.createElement('i');
+        delIcon.className = 'fa-solid fa-trash';
+        delBtn.appendChild(delIcon);
+        delBtn.addEventListener('click', (function(id, title) { return function() { deleteListing(id, title); }; })(l.id, l.title));
+        tdActions.appendChild(delBtn);
+
+        tr.appendChild(tdActions);
+        tbody.appendChild(tr);
+      });
     }
 
     async function deleteListing(id, title) {
@@ -296,10 +448,9 @@
           if (!r.error) {
             uploadedUrls.push(r.url);
             var preview = document.getElementById('uploadPreview');
-            var div = document.createElement('div'); div.className = 'upload-preview-item';
-            if (r.type.startsWith('image/')) div.innerHTML = '<img src="'+r.url+'" alt=""><button class="remove-btn" onclick="this.parentElement.remove();uploadedUrls=uploadedUrls.filter(function(u){return u!==\''+r.url+'\'})">&times;</button>';
-            else div.innerHTML = '<i class="fa-solid fa-'+(r.type==='application/pdf'?'file-pdf':'file')+'" style="font-size:1.5rem;color:#64748b;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)"></i><button class="remove-btn" onclick="this.parentElement.remove();uploadedUrls=uploadedUrls.filter(function(u){return u!==\''+r.url+'\'})">&times;</button>';
-            preview.appendChild(div);
+            preview.appendChild(createPreviewItem(r.url, function() {
+              uploadedUrls = uploadedUrls.filter(function(u) { return u !== r.url; });
+            }));
             document.getElementById('formImages').value = (document.getElementById('formImages').value.trim() + '\n' + r.url).trim();
           }
         });
@@ -347,7 +498,7 @@
       uploadedUrls = imgUrls.slice();
       currentAmenities = (l.amenities || []).slice();
       renderAmenities();
-      document.getElementById('uploadPreview').innerHTML = '';
+      clearContainer('uploadPreview');
       if (l.moveInCosts) {
         document.getElementById('formAnnualRent').value = l.moveInCosts.annualRent || '';
         document.getElementById('formAgencyFee').value = l.moveInCosts.agencyFee || '';
@@ -367,7 +518,7 @@
       document.getElementById('formCity').value = 'Lagos';
       document.getElementById('formAvailability').value = 'Immediately';
       document.getElementById('formImages').value = '';
-      document.getElementById('uploadPreview').innerHTML = '';
+      clearContainer('uploadPreview');
       document.getElementById('formAnnualRent').value = '';
       document.getElementById('formAgencyFee').value = '';
       document.getElementById('formSecurityDeposit').value = '';
@@ -385,9 +536,18 @@
     }
     function removeAmenity(i) { currentAmenities.splice(i,1); renderAmenities(); }
     function renderAmenities() {
-      document.getElementById('amenityTags').innerHTML = currentAmenities.map(function(a,i){
-        return '<span class="amenity-tag">'+a+'<button onclick="removeAmenity('+i+')">&times;</button></span>';
-      }).join('');
+      var container = document.getElementById('amenityTags');
+      clearContainer(container);
+      currentAmenities.forEach(function(a, i) {
+        var tag = document.createElement('span');
+        tag.className = 'amenity-tag';
+        tag.textContent = a + ' ';
+        var btn = document.createElement('button');
+        btn.textContent = '\u00d7';
+        btn.addEventListener('click', (function(idx) { return function() { removeAmenity(idx); }; })(i));
+        tag.appendChild(btn);
+        container.appendChild(tag);
+      });
     }
     document.getElementById('amenityInput').addEventListener('keydown', function(e) { if (e.key==='Enter') { e.preventDefault(); addAmenity(); } });
 
