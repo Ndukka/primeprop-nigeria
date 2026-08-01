@@ -5,12 +5,31 @@
   const client = window.PrimePropClient;
   if (!client) throw new Error('PrimePropClient must load before the catalogue runtime.');
 
+  const RETIRED_CONTACT = '2348000000000';
   let catalogueError = null;
   const listingCache = new Map();
   const originalRenderCards = window.renderCards;
 
   function cacheKey(filters) {
     return JSON.stringify(Object.entries(filters || {}).sort(([a], [b]) => a.localeCompare(b)));
+  }
+
+  function unavailableContactLabel() {
+    const label = document.createElement('span');
+    label.className = 'btn btn-outline btn-sm';
+    label.setAttribute('aria-disabled', 'true');
+    label.textContent = 'Contact unavailable';
+    return label;
+  }
+
+  function neutralizeRetiredContacts(root) {
+    if (!(root instanceof Document || root instanceof DocumentFragment || root instanceof Element)) return;
+    const anchors = [];
+    if (root instanceof HTMLAnchorElement && (root.getAttribute('href') || '').includes(RETIRED_CONTACT)) {
+      anchors.push(root);
+    }
+    root.querySelectorAll(`a[href*="${RETIRED_CONTACT}"]`).forEach(anchor => anchors.push(anchor));
+    for (const anchor of anchors) anchor.replaceWith(unavailableContactLabel());
   }
 
   window.fetchListings = async function fetchListings(filters = {}) {
@@ -63,6 +82,7 @@
       return;
     }
     originalRenderCards(listings, containerId);
+    neutralizeRetiredContacts(document.getElementById(containerId));
   };
 
   const typeSelect = document.getElementById('typeSelect');
@@ -83,4 +103,13 @@
   if (fourPlus && /4\+/.test(fourPlus.textContent || '')) {
     fourPlus.setAttribute('data-bedrooms', '4+');
   }
+
+  const observer = new MutationObserver(records => {
+    for (const record of records) {
+      for (const node of record.addedNodes) neutralizeRetiredContacts(node);
+    }
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  document.addEventListener('DOMContentLoaded', () => neutralizeRetiredContacts(document), { once: true });
+  neutralizeRetiredContacts(document);
 })();
