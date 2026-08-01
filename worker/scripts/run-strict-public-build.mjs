@@ -37,12 +37,37 @@ async function walkTextFiles(directory) {
   return files;
 }
 
-function convertStyleAttributes(source) {
+function convertGeneratedStyleAttributes(source) {
   return source
     .replace(/\bstyle="([^"]*)"/g, 'data-pp-css="$1"')
     .replace(/\bstyle='([^']*)'/g, 'data-pp-css="$1"')
     .replace(/\bstyle=\\"([^"\\]*(?:\\.[^"\\]*)*)\\"/g, 'data-pp-css=\\"$1\\"')
     .replace(/\bstyle=\\'([^'\\]*(?:\\.[^'\\]*)*)\\'/g, 'data-pp-css=\\"$1\\"');
+}
+
+function convertEventPropertyAssignments(source) {
+  const eventProperty = /(\b(?:this|document|window|[A-Za-z_$][\w$]*)(?:(?:\.[A-Za-z_$][\w$]*)|(?:\[[^\]\n]+\])|(?:\([^;\n]*?\)))*?)\.on(click|error|submit|change|input|load)\s*=\s*([^;\n]+);/g;
+  return source.replace(eventProperty, (_match, target, eventName, listener) => {
+    return `window.PrimePropEvents.replace(${target}, '${eventName}', ${listener});`;
+  });
+}
+
+function transformScriptSource(source) {
+  return convertEventPropertyAssignments(convertGeneratedStyleAttributes(source));
+}
+
+function transformInlineScripts(html) {
+  return html.replace(/(<script\b(?![^>]*\bsrc=)[^>]*>)([\s\S]*?)(<\/script>)/gi, (_match, opening, source, closing) => {
+    return `${opening}${transformScriptSource(source)}${closing}`;
+  });
+}
+
+function assertPreparedScriptSource(source, relativePath) {
+  const eventProperty = source.match(/\.on(?:click|error|submit|change|input|load)\s*=/);
+  if (eventProperty) {
+    const index = eventProperty.index || 0;
+    throw new Error(`${relativePath} retains an event property assignment: ${source.slice(Math.max(0, index - 100), index + 220)}`);
+  }
 }
 
 async function prepareSource() {
@@ -71,14 +96,22 @@ async function prepareSource() {
 
   const files = await walkTextFiles(preparedDir);
   for (const file of files) {
+    const relativePath = path.relative(preparedDir, file);
     const source = await readFile(file, 'utf8');
-    const prepared = convertStyleAttributes(source);
-    const remaining = prepared.match(/\sstyle\s*=\s*(?:\\?["'])/i);
-    if (remaining) {
-      const index = remaining.index || 0;
-      const context = prepared.slice(Math.max(0, index - 100), index + 240);
-      throw new Error(`${path.relative(preparedDir, file)} retains a style attribute: ${context}`);
+    let prepared;
+
+    if (file.endsWith('.js')) {
+      prepared = transformScriptSource(source);
+      assertPreparedScriptSource(prepared, relativePath);
+    } else {
+      prepared = transformInlineScripts(source);
+      const inlineSources = [...prepared.matchAll(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)]
+        .map(match => match[1]);
+      for (const inlineSource of inlineSources) {
+        assertPreparedScriptSource(inlineSource, relativePath);
+      }
     }
+
     await writeFile(file, prepared, 'utf8');
   }
 
