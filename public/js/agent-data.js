@@ -53,4 +53,16 @@
       }
     }
   };
+
+  function refreshAfterAuthenticatedBootstrap(attempt = 0) {
+    if (USER) {
+      window.loadData();
+      return;
+    }
+    if (attempt < 100) {
+      setTimeout(() => refreshAfterAuthenticatedBootstrap(attempt + 1), 50);
+    }
+  }
+
+  refreshAfterAuthenticatedBootstrap();
 })();
