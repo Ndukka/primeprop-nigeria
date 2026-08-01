@@ -17,6 +17,7 @@
   const sheet = styleElement.sheet;
   const ruleClasses = new Map();
   const elementProperties = new WeakMap();
+  const replacementListeners = new WeakMap();
   let ruleSequence = 0;
 
   const STATIC_RULES = [
@@ -103,6 +104,29 @@
       const value = part.slice(separator + 1).trim();
       setRuntimeStyle(element, property, value);
     }
+  }
+
+  function replaceEventListener(target, eventName, listener) {
+    if (!(target instanceof EventTarget)) return;
+    const normalizedEvent = String(eventName).trim().toLowerCase();
+    if (!/^[a-z][a-z0-9-]{0,31}$/.test(normalizedEvent)) return;
+
+    let listeners = replacementListeners.get(target);
+    if (!listeners) {
+      listeners = new Map();
+      replacementListeners.set(target, listeners);
+    }
+
+    const previous = listeners.get(normalizedEvent);
+    if (previous) target.removeEventListener(normalizedEvent, previous);
+
+    if (typeof listener !== 'function') {
+      listeners.delete(normalizedEvent);
+      return;
+    }
+
+    target.addEventListener(normalizedEvent, listener);
+    listeners.set(normalizedEvent, listener);
   }
 
   function handleImageFailure(image) {
@@ -203,5 +227,8 @@
     set: setRuntimeStyle,
     apply: applyDeclaration,
     scan,
+  });
+  window.PrimePropEvents = Object.freeze({
+    replace: replaceEventListener,
   });
 })();
