@@ -62,7 +62,7 @@
     }
   }
 
-  async function fetchAllListings(filters = {}, fetcher = fetch) {
+  async function fetchPaginatedListings(endpoint, filters = {}, fetcher = fetch) {
     const baseParams = new URLSearchParams();
     for (const [key, value] of Object.entries(filters)) {
       if (value === '' || value === null || value === undefined || value === 'all') continue;
@@ -77,12 +77,12 @@
 
     do {
       if (page > MAX_PAGES) {
-        throw new Error('The listing catalogue is too large to load safely in one browser request.');
+        throw new Error('The listing inventory is too large to load safely in one browser request.');
       }
 
       const params = new URLSearchParams(baseParams);
       params.set('page', String(page));
-      const url = `/api/listings?${params.toString()}`;
+      const url = `${endpoint}?${params.toString()}`;
       const body = await requestJson(url, {}, fetcher);
       const rows = Array.isArray(body.data) ? body.data : [];
 
@@ -99,6 +99,14 @@
     } while (page <= totalPages);
 
     return listings;
+  }
+
+  function fetchAllListings(filters = {}, fetcher = fetch) {
+    return fetchPaginatedListings('/api/listings', filters, fetcher);
+  }
+
+  function fetchAllAdminListings(filters = {}, fetcher = fetch) {
+    return fetchPaginatedListings('/auth/admin-listings', filters, fetcher);
   }
 
   function clearElement(element) {
@@ -175,7 +183,9 @@
   window.PrimePropClient = Object.freeze({
     csrfToken,
     requestJson,
+    fetchPaginatedListings,
     fetchAllListings,
+    fetchAllAdminListings,
     renderTableError,
     renderGridError,
     logout,
