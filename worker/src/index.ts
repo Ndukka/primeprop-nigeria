@@ -830,13 +830,12 @@ export default {
       return app.fetch(request, env, ctx);
     }
 
-    // 2. HTML pages — serve with per-request nonce injection + strict CSP
+    // 2. HTML pages — fetch from ASSETS, inject nonces, set strict CSP
     if (isHtmlPath(path)) {
       return serveHtmlWithNonce(request, env, path);
     }
 
-    // 3. All other static assets (CSS, JS, images, fonts, etc.)
-    //    Serve from ASSETS binding with basic security headers.
+    // 3. Static assets (CSS, JS, images, fonts) — serve with basic headers
     try {
       const assetResponse = await env.ASSETS.fetch(request);
       if (assetResponse.ok) {
@@ -849,10 +848,10 @@ export default {
         });
       }
     } catch (_e) {
-      // ASSETS binding might not have the file; fall through to 404
+      // ASSETS binding failed — fall through
     }
 
-    // 4. 404 fallback — not an API route, not an HTML page, not a static asset
+    // 4. Not found
     return new Response('Not Found', { status: 404 });
   },
 };
@@ -878,10 +877,10 @@ async function serveHtmlWithNonce(
   env: Bindings,
   path: string,
 ): Promise<Response> {
-  // Rewrite / to /index.html so the ASSETS binding finds the file
+  // Rewrite / to /index (Cloudflare clean URLs strip .html)
   let assetPath = path;
   if (assetPath === '/' || assetPath === '') {
-    assetPath = '/index.html';
+    assetPath = '/index';  // Cloudflare serves index.html for /index path
   }
 
   const assetUrl = new URL(request.url);
@@ -891,6 +890,17 @@ async function serveHtmlWithNonce(
   let assetResponse: Response;
   try {
     assetResponse = await env.ASSETS.fetch(assetRequest);
+    
+    // Follow redirects internally (Cloudflare strips .html → clean URL)
+    // Don't return the redirect to the browser — that causes loops.
+    if (assetResponse.status >= 300 && assetResponse.status < 400) {
+      const location = assetResponse.headers.get('Location');
+      if (location) {
+        const redirectUrl = new URL(location, request.url);
+        const redirectRequest = new Request(redirectUrl.toString(), request);
+        assetResponse = await env.ASSETS.fetch(redirectRequest);
+      }
+    }
   } catch (_e) {
     return new Response('Not Found', { status: 404 });
   }

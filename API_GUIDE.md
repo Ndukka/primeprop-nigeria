@@ -1,675 +1,227 @@
-# PrimeProp Nigeria — API & Deployment Guide
+# PrimeProp Nigeria — API Guide
 
-## 🔐 Access & Credentials
-
-### Admin Account
-| Field | Value |
-|-------|-------|
-| **Email** | `admin@primeprop.ng` |
-| **Password** | `Admin456!` |
-| **Role** | `admin` |
-
-### Authentication (v2 — Cookie-Based)
-Login now sets **httpOnly cookies** (XSS-proof). The browser automatically sends them. No token management needed.
-
-**Cookies set on login:**
-| Cookie | Purpose | Expiry |
-|--------|---------|--------|
-| `pp_session` | JWT access token (httpOnly) | 15 min |
-| `pp_refresh` | JWT refresh token (httpOnly) | 7 days |
-| `pp_csrf` | CSRF token (JS-readable) | 7 days |
-
-**Frontend usage:** All `fetch()` calls must include `credentials: 'include'`.
-**API clients (curl):** Use `-b cookies.txt -c cookies.txt` to store/send cookies, OR use `Authorization: Bearer <token>` header.
-
-### Cloudflare Account
-| Field | Value |
-|-------|-------|
-| **Account** | `ndupsn@gmail.com` |
-| **Account ID** | `84d56c30b002c3f304ceb55e5abc33cc` |
-| **D1 Database** | `primeprop-db` (ID: `162aa04a-f169-43ea-a336-4365350dda4a`) |
-| **R2 Bucket** | `primeprop-images` |
-| **Worker URL** | `https://primeprop-worker.ndupsn.workers.dev` |
+**Base URL:** `https://primeprop-worker.ndupsn.workers.dev`  
+**Auth method:** HttpOnly cookies (browser) or Bearer token (API clients)  
 
 ---
 
-## 🔑 Google OAuth Setup
+## Demo Credentials
 
-### 1. Create Google Cloud Project
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select existing
-3. Go to **APIs & Services → Credentials**
-4. Click **Create Credentials → OAuth 2.0 Client ID**
-5. Set Application Type to **Web Application**
-
-### 2. Configure Redirect URI
-Add this exact URL as an authorized redirect URI:
-```
-https://primeprop-worker.ndupsn.workers.dev/auth/google/callback
-```
-
-### 3. Set Secrets in Cloudflare
-```bash
-cd /Users/knowtheledge/Desktop/html_folder/worker
-
-# Set your Google OAuth credentials
-wrangler secret put GOOGLE_CLIENT_ID
-# Paste: your-client-id.apps.googleusercontent.com
-
-wrangler secret put GOOGLE_CLIENT_SECRET
-# Paste: your-client-secret
-
-wrangler secret put GOOGLE_REDIRECT_URI
-# Paste: https://primeprop-worker.ndupsn.workers.dev/auth/google/callback
-```
-
-### 4. Test OAuth Login
-Visit: `https://primeprop-worker.ndupsn.workers.dev/auth/google`
+| Role | Email | Password |
+|---|---|---|
+| Admin | `admin@primeprop.ng` | `Admin123!` |
+| Agent | Create via signup, then admin approves | — |
 
 ---
 
-## 📡 API Reference (OpenAI Function Calling Compatible)
+## Authentication
 
-### Base URL
+### Login
 ```
-https://primeprop-worker.ndupsn.workers.dev
-```
+POST /auth/login
+Content-Type: application/json
 
-### Authentication
-All write endpoints require authentication. **Cookies are the primary method** (browsers auto-send them). API clients can also use Bearer tokens.
-
-**Curl with cookies (recommended):**
-```bash
-# Login and store cookies
-curl -c cookies.txt -X POST https://primeprop-worker.ndupsn.workers.dev/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@primeprop.ng","password":"Admin456!"}'
-
-# Use cookies for subsequent requests
-curl -b cookies.txt https://primeprop-worker.ndupsn.workers.dev/auth/session
-curl -b cookies.txt https://primeprop-worker.ndupsn.workers.dev/api/listings
-curl -b cookies.txt -X POST ... # write operations
+{"email": "admin@primeprop.ng", "password": "Admin123!"}
 ```
 
-**Curl with Bearer token (API clients):**
-```bash
-TOKEN=$(curl -s -X POST https://.../auth/login -H "Content-Type: application/json" \
-  -d '{"email":"admin@primeprop.ng","password":"Admin456!"}' \
-  | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['token'])")
-curl -H "Authorization: Bearer $TOKEN" https://.../api/listings
-```
-
----
-
-### 📋 Listings
-
-#### `GET /api/listings` — List all listings
-```json
-{
-  "name": "list_listings",
-  "description": "Get all property listings with optional filters, pagination, and search",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "type": { "type": "string", "enum": ["rent", "sale", "land", "all"], "description": "Filter by listing type" },
-      "city": { "type": "string", "description": "Filter by city (Lagos, Abuja)" },
-      "area": { "type": "string", "description": "Filter by area/neighborhood" },
-      "minPrice": { "type": "number", "description": "Minimum price in Naira" },
-      "maxPrice": { "type": "number", "description": "Maximum price in Naira" },
-      "bedrooms": { "type": "number", "description": "Minimum bedrooms" },
-      "search": { "type": "string", "description": "Keyword search across title, location, description" },
-      "featured": { "type": "string", "enum": ["true"], "description": "Only featured listings" },
-      "verified": { "type": "string", "enum": ["true"], "description": "Only verified listings" },
-      "sort": { "type": "string", "enum": ["price-asc", "price-desc", "newest", "featured"], "description": "Sort order" },
-      "page": { "type": "number", "description": "Page number for pagination" },
-      "limit": { "type": "number", "description": "Items per page (default 9, max 100)" }
-    }
-  }
-}
-```
-
-**Example:**
-```bash
-# Get all listings
-curl https://primeprop-worker.ndupsn.workers.dev/api/listings
-
-# Get rent listings in Lagos, sorted by price
-curl "https://primeprop-worker.ndupsn.workers.dev/api/listings?type=rent&city=Lagos&sort=price-asc"
-
-# Search
-curl "https://primeprop-worker.ndupsn.workers.dev/api/listings?search=Lekki&minPrice=5000000"
-
-# Paginated
-curl "https://primeprop-worker.ndupsn.workers.dev/api/listings?page=1&limit=9"
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "count": 12,
-  "data": [
-    {
-      "id": 1,
-      "title": "3-Bedroom Modern Apartment",
-      "type": "rent",
-      "property_type": "apartment",
-      "price": 3500000,
-      "priceDisplay": "₦3,500,000",
-      "price_unit": "/ year",
-      "location": "Lekki Phase 1, Lagos",
-      "area": "Lekki Phase 1",
-      "city": "Lagos",
-      "bedrooms": 3,
-      "bathrooms": 2,
-      "sqft": 1200,
-      "parking": 1,
-      "description": "...",
-      "amenities": ["24/7 Electricity", "Borehole Water Supply", "..."],
-      "images": [
-        { "url": "https://images.unsplash.com/...", "type": "image" }
-      ],
-      "availability": "Immediately",
-      "featured": true,
-      "verified": true,
-      "badge": "Featured",
-      "agent": {
-        "name": "Ade Okafor",
-        "role": "Listing Agent — Lagos",
-        "phone": "2348000000001",
-        "avatar": "https://randomuser.me/api/portraits/men/32.jpg",
-        "initials": "AO"
-      },
-      "moveInCosts": {
-        "annualRent": 3500000,
-        "agencyFee": 350000,
-        "securityDeposit": 291667,
-        "serviceCharge": 200000,
-        "total": 4341667
-      }
-    }
-  ]
-}
-```
-
----
-
-#### `GET /api/listings/:id` — Get single listing
-```json
-{
-  "name": "get_listing",
-  "description": "Get a single property listing by ID",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "id": { "type": "number", "description": "Listing ID" }
-    },
-    "required": ["id"]
-  }
-}
-```
-
-**Example:**
-```bash
-curl https://primeprop-worker.ndupsn.workers.dev/api/listings/1
-```
-
----
-
-#### `POST /api/listings` — Create listing (auth required)
-```json
-{
-  "name": "create_listing",
-  "description": "Create a new property listing. Requires authentication (admin or agent).",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "title": { "type": "string", "description": "Property title (required, max 200 chars)" },
-      "type": { "type": "string", "enum": ["rent", "sale", "land"], "description": "Listing type (required)" },
-      "price": { "type": "number", "description": "Price in Naira (required)" },
-      "location": { "type": "string", "description": "Full location string (required, max 300 chars)" },
-      "property_type": { "type": "string", "enum": ["apartment", "duplex", "detached", "terrace", "villa", "land", "commercial", "semi-detached"], "description": "Property category" },
-      "price_unit": { "type": "string", "description": "Price unit e.g. '/ year', '' for sale" },
-      "area": { "type": "string", "description": "Area/neighborhood" },
-      "city": { "type": "string", "description": "City (Lagos, Abuja)" },
-      "bedrooms": { "type": "number", "description": "Number of bedrooms" },
-      "bathrooms": { "type": "number", "description": "Number of bathrooms" },
-      "sqft": { "type": "number", "description": "Square footage/SQM" },
-      "parking": { "type": "number", "description": "Parking spaces" },
-      "description": { "type": "string", "description": "Full description (max 5000 chars)" },
-      "amenities": { "type": "array", "items": { "type": "string" }, "description": "List of amenities (max 20)" },
-      "images": { "type": "array", "items": { "type": "string" }, "description": "Array of image URLs (max 20)" },
-      "availability": { "type": "string", "description": "Availability status" },
-      "featured": { "type": "boolean", "description": "Feature this listing" },
-      "verified": { "type": "boolean", "description": "Mark as verified" },
-      "badge": { "type": "string", "enum": ["Featured", "New", "Hot Deal", ""], "description": "Card badge" },
-      "agent_name": { "type": "string", "description": "Agent display name" },
-      "agent_role": { "type": "string", "description": "Agent role title" },
-      "agent_phone": { "type": "string", "description": "WhatsApp phone number with country code" },
-      "agent_avatar": { "type": "string", "description": "URL to agent profile picture" },
-      "annual_rent": { "type": "number", "description": "Annual rent amount (rent type only)" },
-      "agency_fee": { "type": "number", "description": "Agency fee amount" },
-      "security_deposit": { "type": "number", "description": "Security deposit amount" },
-      "service_charge": { "type": "number", "description": "Service charge amount" }
-    },
-    "required": ["title", "type", "price", "location"]
-  }
-}
-```
-
-**Example:**
-```bash
-# Login first to get token
-TOKEN=$(curl -s -X POST https://primeprop-worker.ndupsn.workers.dev/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@primeprop.ng","password":"admin123"}' \
-  | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['token'])")
-
-# Create listing
-curl -X POST https://primeprop-worker.ndupsn.workers.dev/api/listings \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "title": "New Luxury Apartment",
-    "type": "rent",
-    "price": 5000000,
-    "location": "Ikoyi, Lagos",
-    "property_type": "apartment",
-    "city": "Lagos",
-    "bedrooms": 3,
-    "bathrooms": 2,
-    "sqft": 1500,
-    "description": "Beautiful new apartment in Ikoyi...",
-    "amenities": ["Swimming Pool", "Gym", "24/7 Power", "Parking"],
-    "images": ["https://images.unsplash.com/photo-xxx"],
-    "agent_name": "Ade Okafor",
-    "agent_phone": "2348000000001",
-    "annual_rent": 5000000,
-    "agency_fee": 500000,
-    "security_deposit": 416667,
-    "service_charge": 250000
-  }'
-```
-
----
-
-#### `PUT /api/listings/:id` — Update listing (auth required)
-```json
-{
-  "name": "update_listing",
-  "description": "Update an existing listing. Admins can edit any listing; agents can only edit their own.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "id": { "type": "number", "description": "Listing ID to update" },
-      "title": { "type": "string" },
-      "price": { "type": "number" },
-      "...": { "description": "Same fields as create_listing. Only provided fields are updated." }
-    },
-    "required": ["id"]
-  }
-}
-```
-
-**Example:**
-```bash
-curl -X PUT https://primeprop-worker.ndupsn.workers.dev/api/listings/13 \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"title": "Updated Title", "price": 5500000, "featured": true}'
-```
-
----
-
-#### `DELETE /api/listings/:id` — Delete listing (admin only)
-```bash
-curl -X DELETE https://primeprop-worker.ndupsn.workers.dev/api/listings/13 \
-  -H "Authorization: Bearer $TOKEN"
-```
-
----
-
-### 📊 Statistics
-
-#### `GET /api/stats` — Get platform statistics
-```bash
-curl https://primeprop-worker.ndupsn.workers.dev/api/stats
-```
-**Response:**
+Response:
 ```json
 {
   "success": true,
   "data": {
-    "total": 12,
-    "rent": 5,
-    "sale": 4,
-    "land": 3,
-    "featured": 3
+    "token": "eyJ...",
+    "csrf": "067b...",
+    "user": {"id": 1, "email": "admin@primeprop.ng", "name": "Admin", "role": "admin"}
   }
 }
 ```
 
----
+- **Browser auth:** Cookies (`pp_session`, `pp_refresh`) are set automatically. Use `credentials: 'include'` in fetch calls.
+- **API clients:** Use `Authorization: Bearer <token>` header.
+- **CSRF:** Write operations require `X-CSRF-Token` header (read from `pp_csrf` cookie in browser).
 
-### 🗺️ Districts
-
-#### `GET /api/districts` — List all districts
-```bash
-curl https://primeprop-worker.ndupsn.workers.dev/api/districts
+### Session Check
+```
+GET /auth/session
+# Browser: credentials: 'include'
+# API: Authorization: Bearer <token>
 ```
 
-#### `POST /api/districts` — Create district (admin only)
-```bash
-curl -X POST https://primeprop-worker.ndupsn.workers.dev/api/districts \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "name": "New District",
-    "city": "Lagos",
-    "description": "A new area guide...",
-    "checks": ["Check 1", "Check 2"],
-    "image": "https://images.unsplash.com/photo-xxx",
-    "link_type": "all"
-  }'
+### Logout
+```
+POST /auth/logout
+# Requires CSRF token (browser)
 ```
 
-#### `PUT /api/districts/:id` — Update district (admin only)
-#### `DELETE /api/districts/:id` — Delete district (admin only)
+### Signup (Public)
+```
+POST /auth/signup
+{"email": "agent@example.com", "password": "AgentPass1", "name": "Agent Name"}
+```
+New accounts are `pending` — admin must approve before login.
+
+### Register (Admin only)
+```
+POST /auth/register
+Authorization: Bearer <admin-token>
+{"email": "new-agent@example.com", "password": "AgentPass1", "name": "Agent Name", "role": "agent"}
+```
 
 ---
 
-### 🔐 Authentication
+## Listings API
 
-#### `POST /auth/login` — Email/password login
-```json
+### List listings (paginated)
+```
+GET /api/listings?page=1&limit=20&type=rent&city=Lagos&sort=newest
+```
+
+Query params:
+| Param | Values | Default |
+|---|---|---|
+| `page` | 1–1000 | 1 |
+| `limit` | 1–100 | 20 |
+| `type` | `all`, `rent`, `sale`, `land` | `all` |
+| `city` | e.g., `Lagos`, `Abuja` | — |
+| `area` | partial match | — |
+| `minPrice`, `maxPrice` | number | — |
+| `bedrooms` | number | — |
+| `search` | keyword search | — |
+| `sort` | `price-asc`, `price-desc`, `newest`, `featured` | `featured` |
+
+### Get single listing
+```
+GET /api/listings/:id
+```
+
+### Create listing (authenticated)
+```
+POST /api/listings
+Authorization: Bearer <token>
+Content-Type: application/json
+
 {
-  "name": "login",
-  "description": "Authenticate with email and password to receive a JWT token",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "email": { "type": "string", "description": "Registered email" },
-      "password": { "type": "string", "description": "Account password" }
-    },
-    "required": ["email", "password"]
-  }
+  "title": "3-Bedroom Flat",
+  "type": "rent",
+  "price": 1500000,
+  "location": "Lekki, Lagos",
+  "description": "Spacious flat...",
+  "bedrooms": 3,
+  "bathrooms": 2,
+  "sqft": 1200,
+  "amenities": ["Parking", "Security"],
+  "images": ["https://images.unsplash.com/photo-..."],
+  "availability": "Immediately"
 }
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "token": "eyJhbGciOiJIUzI1NiJ9...",
-    "csrf": "a1b2c3d4...",
-    "user": { "id": 1, "email": "admin@primeprop.ng", "name": "Admin", "role": "admin" }
-  }
-}
+**Agent restrictions:** Agents cannot set `verified`, `featured`, `badge`, or impersonate other agents. Trust fields are admin-only.
+
+### Update listing
+```
+PUT /api/listings/:id
+Authorization: Bearer <token>
+{"title": "Updated Title", "price": 1600000}
+```
+
+### Delete listing
+```
+DELETE /api/listings/:id
+Authorization: Bearer <token>
 ```
 
 ---
 
-#### `POST /auth/register` — Create new user (admin only)
-```json
-{
-  "name": "register_user",
-  "description": "Create a new agent or admin account. Requires admin authentication.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "email": { "type": "string", "description": "New user email" },
-      "password": { "type": "string", "description": "Password (8+ chars, upper+lower+number)" },
-      "name": { "type": "string", "description": "Display name" },
-      "role": { "type": "string", "enum": ["admin", "agent"], "description": "User role" }
-    },
-    "required": ["email", "password", "name"]
-  }
-}
+## Stats
 ```
+GET /api/stats
+```
+Returns: `{total, rent, sale, land, featured}`
 
-**Example:**
-```bash
-curl -X POST https://primeprop-worker.ndupsn.workers.dev/auth/register \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -d '{"email":"newagent@primeprop.ng","password":"SecurePass1!","name":"New Agent","role":"agent"}'
+---
+
+## Districts (Admin only)
+
+```
+GET /api/districts
+POST /api/districts
+PUT /api/districts/:id
+DELETE /api/districts/:id
 ```
 
 ---
 
-#### `GET /auth/session` — Verify token & refresh
-```bash
-curl https://primeprop-worker.ndupsn.workers.dev/auth/session \
-  -H "Authorization: Bearer $TOKEN"
+## Cities (Admin write)
+
 ```
-Returns refreshed token and user info.
-
----
-
-#### `GET /auth/users` — List all users (admin only)
-```bash
-curl https://primeprop-worker.ndupsn.workers.dev/auth/users \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-#### `PUT /auth/users/:id` — Update user (admin only)
-Ban/unban, change role, update name/phone:
-```bash
-# Ban a user
-curl -X PUT https://primeprop-worker.ndupsn.workers.dev/auth/users/2 \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"account_status": "banned"}'
-
-# Unban
-curl -X PUT https://primeprop-worker.ndupsn.workers.dev/auth/users/2 \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"account_status": "active"}'
-
-# Change role
-curl -X PUT https://primeprop-worker.ndupsn.workers.dev/auth/users/2 \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"role": "admin"}'
-```
-
-#### `DELETE /auth/users/:id` — Delete user (admin only)
-```bash
-curl -X DELETE https://primeprop-worker.ndupsn.workers.dev/auth/users/3 \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-#### `GET /auth/my-listings` — Get agent's own listings
-```bash
-curl https://primeprop-worker.ndupsn.workers.dev/auth/my-listings \
-  -H "Authorization: Bearer $AGENT_TOKEN"
-```
-
-#### `PUT /auth/profile` — Update own profile (self-service)
-```bash
-curl -X PUT https://primeprop-worker.ndupsn.workers.dev/auth/profile \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"name": "New Name", "phone": "2348000000000"}'
+GET /api/cities
+POST /api/cities
+PUT /api/cities/:id
+DELETE /api/cities/:id
 ```
 
 ---
 
-### 📁 File Upload
+## Image Upload
 
-#### `POST /api/images/upload` — Upload file (auth required)
-```json
-{
-  "name": "upload_file",
-  "description": "Upload an image, PDF, or video to R2 storage. Returns the URL to use in listing images array.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "file": { "type": "string", "format": "binary", "description": "File to upload" }
-    },
-    "required": ["file"]
-  }
-}
+```
+POST /api/images/upload
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+
+file: <image file>
+# or
+files: <multiple files>
 ```
 
-**Supported formats:**
-| Type | MIME Types | Max Size |
-|------|-----------|----------|
-| Images | JPEG, PNG, WebP, GIF, AVIF | 10 MB |
-| PDFs | application/pdf | 10 MB |
-| Videos | MP4, WebM, MOV | 50 MB |
-
-**Example (curl with cookies):**
-```bash
-# Upload multiple files
-curl -b cookies.txt -X POST https://primeprop-worker.ndupsn.workers.dev/api/images/upload \
-  -F "files=@photo.jpg" \
-  -F "files=@video.mp4" \
-  -F "files=@brochure.pdf"
-```
-
-**Supported formats:**
-| Type | MIME Types | Max Size |
-|------|-----------|----------|
-| Images | JPEG, PNG, WebP, GIF, AVIF | 10 MB |
-| PDFs | application/pdf | 10 MB |
-| Videos | MP4, WebM, MOV | 50 MB |
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": [
-    { "key": "listings/images/123-photo.jpg", "url": "/api/images/...", "type": "image/jpeg", "size": 245000, "name": "photo.jpg" },
-    { "key": "listings/videos/456-video.mp4", "url": "/api/images/...", "type": "video/mp4", "size": 5000000, "name": "video.mp4" }
-  ]
-}
-```
-
-Use the returned `url` values in the `images` array when creating/updating a listing.
+Limits: 5 files/request, 50 uploads/user/day, 10MB images, 50MB videos/PDFs.  
+Allowed types: JPEG, PNG, GIF, WebP, AVIF, PDF, MP4, WebM, MOV.
 
 ---
 
-### 🤖 OpenAI Function Calling — Full Schema
+## Users (Admin only)
 
-For AI agents to interact with the API, here's the complete function definitions:
+```
+GET /auth/users                    # List all
+GET /auth/users/:id                # Get single
+PUT /auth/users/:id                # Update (role, status, name)
+DELETE /auth/users/:id             # Delete (with safeguards)
+```
 
-```json
-{
-  "functions": [
-    {
-      "name": "search_listings",
-      "description": "Search property listings with filters",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "type": { "type": "string", "enum": ["rent", "sale", "land", "all"] },
-          "city": { "type": "string" },
-          "minPrice": { "type": "number" },
-          "maxPrice": { "type": "number" },
-          "bedrooms": { "type": "number" },
-          "search": { "type": "string" },
-          "sort": { "type": "string", "enum": ["price-asc", "price-desc", "newest", "featured"] }
-        }
-      }
-    },
-    {
-      "name": "get_listing_details",
-      "description": "Get full details of a specific listing",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "id": { "type": "number", "description": "Listing ID" }
-        },
-        "required": ["id"]
-      }
-    },
-    {
-      "name": "create_listing",
-      "description": "Create a new property listing",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "title": { "type": "string" },
-          "type": { "type": "string", "enum": ["rent", "sale", "land"] },
-          "price": { "type": "number" },
-          "location": { "type": "string" },
-          "city": { "type": "string" },
-          "bedrooms": { "type": "number" },
-          "bathrooms": { "type": "number" },
-          "description": { "type": "string" },
-          "amenities": { "type": "array", "items": { "type": "string" } },
-          "images": { "type": "array", "items": { "type": "string" } },
-          "agent_name": { "type": "string" },
-          "agent_phone": { "type": "string" }
-        },
-        "required": ["title", "type", "price", "location"]
-      }
-    },
-    {
-      "name": "get_platform_stats",
-      "description": "Get total listing counts by type",
-      "parameters": { "type": "object", "properties": {} }
-    }
-  ]
-}
+Account statuses: `pending` → `active` / `banned`
+
+---
+
+## Uploads (Admin only)
+
+```
+GET /api/uploads?page=1&limit=20   # List with ownership
+DELETE /api/uploads/:id            # Delete from R2 + DB
 ```
 
 ---
 
-## 🚀 Deployment Commands
+## Rate Limits
 
-```bash
-cd /Users/knowtheledge/Desktop/html_folder/worker
-
-# Deploy worker + assets
-wrangler deploy
-
-# Apply database migrations
-wrangler d1 migrations apply primeprop-db --remote
-
-# Set secrets
-wrangler secret put JWT_SECRET
-wrangler secret put GOOGLE_CLIENT_ID
-wrangler secret put GOOGLE_CLIENT_SECRET
-wrangler secret put GOOGLE_REDIRECT_URI
-
-# View logs
-wrangler tail
-
-# Local development
-wrangler dev
-```
+| Endpoint | Requests/min |
+|---|---|
+| Login | 10 |
+| Signup | 3 |
+| Register | 5 |
+| Forgot password | 3 |
+| Reset password | 3 |
+| Upload | 10 |
+| Other writes | 60 |
+| Reads | 300 |
 
 ---
 
-## 🔒 Security Summary
-- **Rate Limiting:** 30/min login, 10/min register, 120/min writes
-- **Password Policy:** 8+ chars, upper+lower+number, bcrypt 12 rounds
-- **JWT:** 8h expiry, issuer-validated, role refreshed from DB
-- **CSRF:** Double-submit cookie pattern
-- **CORS:** Whitelist-based
-- **CSP:** Strict content security policy
-- **HSTS:** Preload-ready, 2-year max-age
-- **File Upload:** MIME whitelist + size limits
-- **Input Validation:** All inputs sanitized
+## Security
 
-## 📦 Project Structure
-```
-html_folder/
-├── worker/              # Cloudflare Worker (Hono.js)
-│   ├── src/
-│   │   ├── index.ts     # Main API + static serving
-│   │   └── auth.ts      # Auth, JWT, user management
-│   ├── migrations/      # D1 SQL migrations
-│   └── wrangler.toml    # Cloudflare config
-├── js/app.js            # Frontend rendering, search, cache
-├── styles.css           # Shared styles + skeleton + lightbox
-├── admin.html           # Admin panel (listings + districts + users)
-├── index.html           # Homepage
-├── properties*.html     # Listing pages (dynamic)
-├── listing-detail.html  # Dynamic detail page
-└── areas.html           # Area guides (dynamic)
-```
+- **JWT tokens** with `token_use` claim (access vs refresh)
+- **HttpOnly cookies** for browser sessions
+- **CSRF protection** on all state-changing routes
+- **Strict CSP** with per-request nonces
+- **Password hashing:** bcrypt cost 12, auto-upgrade on login
+- **Pending accounts:** new signups require admin approval
+- **Role-based access:** agents cannot self-verify or impersonate

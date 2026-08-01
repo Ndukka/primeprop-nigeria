@@ -30,7 +30,7 @@ export function generateNonce(): string {
  *       scripts (e.g. js/app.js) dynamically create <script> elements
  *   style-src 'self' 'nonce-...' https://cdnjs.cloudflare.com https://fonts.googleapis.com
  *     — self-hosted CSS + nonced inline <style> + Font Awesome + Google Fonts
- *   img-src 'self' data: https://images.unsplash.com
+ *   img-src 'self' data: https://images.unsplash.com https://randomuser.me
  *     — self (incl. R2 proxied via /api/images/) + data URIs + placeholder images
  *   font-src 'self' https://fonts.gstatic.com
  *     — self-hosted fonts + Google Fonts actual font files
@@ -48,7 +48,7 @@ export function buildCsp(nonce: string): string {
     "default-src 'self'",
     "script-src 'nonce-" + nonce + "' 'strict-dynamic'",
     "style-src 'self' 'nonce-" + nonce + "' https://cdnjs.cloudflare.com https://fonts.googleapis.com",
-    "img-src 'self' data: https://images.unsplash.com",
+    "img-src 'self' data: https://images.unsplash.com https://randomuser.me",
     "font-src 'self' https://fonts.gstatic.com",
     "connect-src 'self'",
     "frame-src https://www.youtube.com",
@@ -150,5 +150,11 @@ function setCommonSecurityHeaders(headers: Headers): void {
  */
 export function isHtmlPath(path: string): boolean {
   if (path === '/' || path === '') return true;
-  return /\.html$/i.test(path);
+  // Known static extensions → not HTML
+  const staticExts = /\.(css|js|png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|eot|map|json|xml|txt)$/i;
+  if (staticExts.test(path)) return false;
+  // .html explicitly
+  if (/\.html$/i.test(path)) return true;
+  // Clean URLs (Cloudflare strips .html) — try as HTML
+  return !path.includes('.');
 }

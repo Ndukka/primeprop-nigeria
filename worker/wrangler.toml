@@ -29,9 +29,8 @@ new_sqlite_classes = ["RateLimiter"]
 name = "RATE_LIMITER"
 class_name = "RateLimiter"
 
-# Static assets (excludes controlled by ../.assetsignore)
-# PP-SEC-010: run_worker_first ensures the Worker can apply security headers
-# and inject nonces before serving static HTML files.
+# run_worker_first=true: Worker intercepts all requests, applies nonce CSP to HTML.
+# ASSETS.fetch() inside Worker bypasses the Worker — no loop risk.
 [assets]
 binding = "ASSETS"
 directory = "../public"
