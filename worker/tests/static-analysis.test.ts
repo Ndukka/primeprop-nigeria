@@ -159,16 +159,45 @@ describe('operator script safeguards', () => {
     expect(verifier).not.toContain('Asset body is unexpectedly small');
   });
 
-  it('rejects placeholder credentials and supports temporary administrator login', () => {
+  it('waits for repeated coherent deployment rounds with cache-busted requests', () => {
+    const verifier = readScript('verify-deployment.mjs');
+    expect(verifier).toContain('PRIMEPROP_VERIFY_ATTEMPTS');
+    expect(verifier).toContain('PRIMEPROP_VERIFY_STABLE_PASSES');
+    expect(verifier).toContain('__pp_verify');
+    expect(verifier).toContain('primeprop_deployment_verification_retry');
+    expect(verifier).toContain('consecutivePasses');
+    expect(verifier).toContain("'Cache-Control': 'no-cache, no-store, max-age=0'");
+  });
+
+  it('rejects placeholder credentials and prompts securely without shell-specific read syntax', () => {
     const audit = readScript('audit-cloudflare-data.mjs');
     expect(audit).toContain('PRIMEPROP_ADMIN_EMAIL');
     expect(audit).toContain('PRIMEPROP_ADMIN_PASSWORD');
     expect(audit).toContain('isPlaceholder');
+    expect(audit).toContain('promptTerminal');
+    expect(audit).toContain('input.setRawMode(true)');
     expect(audit).toContain('`${baseUrl}/auth/login`');
+    expect(audit).not.toContain('read -r -p');
     expect(audit).not.toContain('console.log(bearer');
     expect(audit).not.toContain('console.error(bearer');
     expect(audit).not.toContain('console.log(token');
     expect(audit).not.toContain('console.error(token');
+  });
+
+  it('pins deploy, development, and migration commands to the tested Wrangler package', () => {
+    const runner = readScript('run-wrangler.mjs');
+    const packageJson = JSON.parse(readFileSync(resolve(__dirname, '../package.json'), 'utf-8')) as {
+      scripts: Record<string, string>;
+    };
+
+    expect(runner).toContain("EXPECTED_WRANGLER_VERSION = '4.118.0'");
+    expect(runner).toContain("'@cloudflare',");
+    expect(runner).toContain("'vitest-pool-workers',");
+    expect(runner).toContain('Refusing to run Wrangler');
+    expect(packageJson.scripts.dev).toContain('node ./scripts/run-wrangler.mjs dev');
+    expect(packageJson.scripts.deploy).toContain('node ./scripts/run-wrangler.mjs deploy');
+    expect(packageJson.scripts['d1:migrate']).toContain('node ./scripts/run-wrangler.mjs d1 migrations apply');
+    expect(packageJson.scripts.deploy).not.toMatch(/&&\s*wrangler\s+deploy/);
   });
 });
 
