@@ -69,10 +69,10 @@ describe('dashboard database and session regressions', () => {
     const agent = generatedSource('js/agent-data.js');
 
     expect(admin).toContain('Promise.allSettled');
-    expect(admin).toContain("client.renderTableError('tableBody'");
-    expect(admin).toContain("client.renderTableError('districtsTableBody'");
-    expect(admin).toContain("client.renderTableError('usersTableBody'");
-    expect(agent).toContain("client.renderTableError('tableBody'");
+    expect(admin).toMatch(/client\.renderTableError\(\s*['"]tableBody['"]/);
+    expect(admin).toMatch(/client\.renderTableError\(\s*['"]districtsTableBody['"]/);
+    expect(admin).toMatch(/client\.renderTableError\(\s*['"]usersTableBody['"]/);
+    expect(agent).toMatch(/client\.renderTableError\(\s*['"]tableBody['"]/);
     expect(admin).toContain("district.link_type || 'all'");
   });
 
@@ -83,6 +83,13 @@ describe('dashboard database and session regressions', () => {
     expect(agent).toContain('listing.priceUnit');
     expect(agent).toContain('property_type:');
     expect(agent).toContain('price_unit:');
+  });
+
+  it('routes non-admin sessions away from the admin dashboard', () => {
+    const admin = generatedSource('js/admin-data.js');
+
+    expect(admin).toContain("AUTH_USER.role !== 'admin'");
+    expect(admin).toContain("window.location.replace('/agent')");
   });
 
   it('removes unsupported catalogue filters and implements four-or-more bedrooms', () => {
