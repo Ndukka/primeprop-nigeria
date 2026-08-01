@@ -22,8 +22,15 @@ export function isYouTube(url: string): boolean {
   return /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)/i.test(url);
 }
 
+function normalizeListingPhone(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.replace(/[^0-9+]/g, '').slice(0, 20);
+}
+
 // PP-SEC-020: Explicit DTO — never spread raw database rows into API responses.
-// Public listing response: only approved fields, no internal columns (created_by, etc).
+// The listing contact number is intentionally public because it is the lister-selected
+// contact channel used by the marketplace's WhatsApp action. Internal ownership and
+// moderation fields remain admin-only.
 export function rowToListing(row: any, isAdmin: boolean = false) {
   if (!row) return null;
   const agentName = row.agent_name || '';
@@ -59,7 +66,7 @@ export function rowToListing(row: any, isAdmin: boolean = false) {
     agent: {
       name: agentName,
       role: row.agent_role || '',
-      phone: '',  // PP-SEC-020: Agent phone is admin-only
+      phone: normalizeListingPhone(row.agent_phone),
       avatar: row.agent_avatar || '',
       initials: agentName ? agentName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) : 'NA',
     },
@@ -74,10 +81,9 @@ export function rowToListing(row: any, isAdmin: boolean = false) {
     updatedAt: row.updated_at || '',
   };
 
-  // Admin-only fields (internal ownership, agent contact, moderation data)
+  // Admin-only fields (internal ownership and moderation data)
   if (isAdmin) {
     dto.createdBy = row.created_by;
-    dto.agent.phone = row.agent_phone || '';
     dto.moderationStatus = row.moderation_status || '';
   }
 
