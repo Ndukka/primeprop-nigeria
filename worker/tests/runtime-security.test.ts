@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { exports } from 'cloudflare:workers';
+import { env, exports } from 'cloudflare:workers';
 
 const BASE = 'https://primeprop-worker.ndupsn.workers.dev';
 const ADMIN_EMAIL = 'test-admin@primeprop.invalid';
 const ADMIN_PASSWORD = 'TestAdmin123!';
+
+type TestEnv = {
+  DB: D1Database;
+  IMAGES: R2Bucket;
+};
 
 type LoginBody = {
   success: boolean;
@@ -20,6 +25,8 @@ type LoginResult = {
   cookieHeader: string;
   refreshToken: string;
 };
+
+const testEnv = env as unknown as TestEnv;
 
 function getSetCookieValues(headers: Headers): string[] {
   const compatibleHeaders = headers as Headers & { getSetCookie?: () => string[] };
@@ -182,5 +189,59 @@ describe('account and response restrictions', () => {
     });
 
     expect(response.headers.get('Access-Control-Allow-Origin')).not.toBe('https://evil.example');
+  });
+});
+
+describe('read-only D1 and R2 integrity audit', () => {
+  it('rejects unauthenticated inventory access', async () => {
+    const response = await workerFetch('/auth/security/storage-audit');
+    expect(response.status).toBe(401);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+  });
+
+  it('classifies tracked, untracked, suspicious, and unreferenced objects', async () => {
+    const login = await loginAsAdmin();
+    const accessToken = login.body.data?.token || '';
+    const trackedKey = `images/audit-${crypto.randomUUID()}.jpg`;
+    const suspiciousKey = `other/audit-${crypto.randomUUID()}.txt`;
+    const trackedBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00]);
+
+    await testEnv.IMAGES.put(trackedKey, trackedBytes, {
+      httpMetadata: { contentType: 'image/jpeg' },
+    });
+    await testEnv.IMAGES.put(suspiciousKey, 'not an approved media object', {
+      httpMetadata: { contentType: 'text/plain' },
+    });
+    await testEnv.DB.prepare(
+      `INSERT INTO upload_objects
+       (user_id, listing_id, object_key, original_name, content_type, size_bytes, folder)
+       VALUES (1, NULL, ?, 'audit.jpg', 'image/jpeg', ?, 'images')`
+    ).bind(trackedKey, trackedBytes.byteLength).run();
+
+    const response = await workerFetch('/auth/security/storage-audit', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      success: boolean;
+      data: {
+        readOnly: boolean;
+        counts: { r2Objects: number; issues: number; high: number };
+        issues: Array<{ category: string; key?: string }>;
+      };
+    };
+
+    expect(body.success).toBe(true);
+    expect(body.data.readOnly).toBe(true);
+    expect(body.data.counts.r2Objects).toBeGreaterThanOrEqual(2);
+    expect(body.data.counts.issues).toBeGreaterThan(0);
+    expect(body.data.counts.high).toBeGreaterThan(0);
+    expect(body.data.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ category: 'tracked-but-unreferenced', key: trackedKey }),
+      expect.objectContaining({ category: 'r2-untracked', key: suspiciousKey }),
+      expect.objectContaining({ category: 'suspicious-object-key', key: suspiciousKey }),
+      expect.objectContaining({ category: 'unapproved-r2-content-type', key: suspiciousKey }),
+    ]));
   });
 });
