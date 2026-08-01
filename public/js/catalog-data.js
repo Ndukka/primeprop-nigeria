@@ -97,6 +97,14 @@
   if (propertyTypeSelect) {
     const terraced = propertyTypeSelect.querySelector('option[value="terraced"]');
     if (terraced) terraced.value = 'terrace';
+    if (!propertyTypeSelect.querySelector('option[value="service-apartment"]')) {
+      const serviceApartment = document.createElement('option');
+      serviceApartment.value = 'service-apartment';
+      serviceApartment.textContent = 'Service Apartment';
+      const apartment = propertyTypeSelect.querySelector('option[value="apartment"]');
+      if (apartment?.nextSibling) propertyTypeSelect.insertBefore(serviceApartment, apartment.nextSibling);
+      else propertyTypeSelect.appendChild(serviceApartment);
+    }
   }
 
   const fourPlus = document.querySelector('.filter-tag-btn[data-bedrooms="4"]');
