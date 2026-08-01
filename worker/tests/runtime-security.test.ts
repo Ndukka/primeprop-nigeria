@@ -5,16 +5,18 @@ const BASE = 'https://primeprop.test';
 const ADMIN_EMAIL = 'test-admin@primeprop.invalid';
 const ADMIN_PASSWORD = 'TestAdmin123!';
 
+type LoginBody = {
+  success: boolean;
+  data?: {
+    token?: string;
+    csrf?: string;
+    user?: { id: number; email: string; role: string; name: string };
+  };
+};
+
 type LoginResult = {
   response: Response;
-  body: {
-    success: boolean;
-    data?: {
-      token?: string;
-      csrf?: string;
-      user?: { id: number; email: string; role: string; name: string };
-    };
-  };
+  body: LoginBody;
   cookieHeader: string;
   refreshToken: string;
 };
@@ -47,7 +49,7 @@ async function loginAsAdmin(): Promise<LoginResult> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD }),
   });
-  const body = await response.clone().json<LoginResult['body']>();
+  const body = (await response.clone().json()) as LoginBody;
   const setCookies = getSetCookieValues(response.headers);
   const cookieHeader = setCookies.map(value => value.split(';', 1)[0]).join('; ');
 
@@ -158,14 +160,15 @@ describe('account and response restrictions', () => {
     });
 
     expect(login.status).toBe(403);
-    expect((await login.json<{ message: string }>()).message.toLowerCase()).toContain('pending');
+    const body = (await login.json()) as { message: string };
+    expect(body.message.toLowerCase()).toContain('pending');
   });
 
   it('does not expose internal ownership or agent phone in the public listing DTO', async () => {
     const response = await workerFetch('/api/listings?page=1&limit=100');
     expect(response.status).toBe(200);
 
-    const body = await response.json<{ data: Array<Record<string, any>> }>();
+    const body = (await response.json()) as { data: Array<Record<string, any>> };
     for (const listing of body.data) {
       expect(listing.created_by).toBeUndefined();
       expect(listing.createdBy).toBeUndefined();
