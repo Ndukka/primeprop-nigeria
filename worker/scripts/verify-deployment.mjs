@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 const baseUrl = (process.env.PRIMEPROP_BASE_URL || '').replace(/\/+$/, '');
 
 if (!baseUrl || !/^https:\/\//i.test(baseUrl)) {
@@ -29,6 +31,10 @@ async function fetchChecked(path, options = {}) {
   }
 }
 
+function expectedContentHash(path) {
+  return path.match(/\.([a-f0-9]{12})\.(?:css|js)$/i)?.[1]?.toLowerCase() || '';
+}
+
 async function verifyAsset(path, expectedPattern) {
   if (checkedAssets.has(path)) return;
   checkedAssets.add(path);
@@ -42,8 +48,24 @@ async function verifyAsset(path, expectedPattern) {
   if (expectedPattern && !expectedPattern.test(contentType)) {
     fail(path, `Unexpected content type ${contentType || 'missing'}`);
   }
+
   const body = await response.text();
-  if (body.length < 20) fail(path, 'Asset body is unexpectedly small');
+  if (body.length === 0) {
+    fail(path, 'Asset body is empty');
+    return;
+  }
+
+  // Generated asset names contain the first 12 hexadecimal characters of the
+  // SHA-256 body digest. Validate that contract instead of assuming legitimate
+  // JavaScript or CSS must exceed an arbitrary byte count. Small page-specific
+  // listener files are valid and should not fail solely because they are short.
+  const expectedHash = expectedContentHash(path);
+  if (expectedHash) {
+    const actualHash = createHash('sha256').update(body).digest('hex').slice(0, 12);
+    if (actualHash !== expectedHash) {
+      fail(path, `Content hash mismatch: expected ${expectedHash}, received ${actualHash}`);
+    }
+  }
 }
 
 const manifestResponse = await fetchChecked('/asset-manifest.json');
