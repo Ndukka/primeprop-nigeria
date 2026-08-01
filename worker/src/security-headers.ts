@@ -7,11 +7,10 @@
 
 // ── Nonce Generation ──────────────────────────────────────
 // 192 bits of entropy (24 random bytes), base64url-encoded.
-// Regenerated per-request so every page load gets a fresh, unguessable nonce.
+// Regenerated per request so every page load gets a fresh nonce.
 export function generateNonce(): string {
   const bytes = new Uint8Array(24);
   crypto.getRandomValues(bytes);
-  // Use base64 without padding and URL-safe characters
   return btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
@@ -21,72 +20,59 @@ export function generateNonce(): string {
 // ── CSP Builders ──────────────────────────────────────────
 
 /**
- * Strict CSP for HTML pages with nonce-based script/style execution.
+ * CSP for HTML pages.
  *
- * Directives rationale:
- *   default-src 'self'                  — lock down by default
- *   script-src 'nonce-...' 'strict-dynamic'
- *     — only scripts with the nonce run; 'strict-dynamic' lets trusted
- *       scripts (e.g. js/app.js) dynamically create <script> elements
- *   style-src 'self' 'nonce-...' https://cdnjs.cloudflare.com https://fonts.googleapis.com
- *     — self-hosted CSS + nonced inline <style> + Font Awesome + Google Fonts
- *   img-src 'self' data: https://images.unsplash.com https://randomuser.me
- *     — self (incl. R2 proxied via /api/images/) + data URIs + placeholder images
- *   font-src 'self' https://fonts.gstatic.com
- *     — self-hosted fonts + Google Fonts actual font files
- *   connect-src 'self'
- *     — only same-origin fetch/XHR (all API calls go to /api/*, /auth/*)
- *   frame-src https://www.youtube.com
- *     — property video embeds (YouTube iframes)
- *   frame-ancestors 'none'              — prevent clickjacking
- *   object-src 'none'                   — block Flash/plugins
- *   base-uri 'self'                     — prevent base tag injection
- *   form-action 'self'                  — prevent form hijacking
+ * Scripts remain nonce-only. The current static pages and app.js still use
+ * style attributes and element.style assignments, which nonces cannot cover.
+ * style-src-attr therefore permits inline CSS attributes only. This does not
+ * permit inline JavaScript or event handlers.
  */
 export function buildCsp(nonce: string): string {
   return [
     "default-src 'self'",
     "script-src 'nonce-" + nonce + "' 'strict-dynamic'",
+    "script-src-attr 'none'",
     "style-src 'self' 'nonce-" + nonce + "' https://cdnjs.cloudflare.com https://fonts.googleapis.com",
-    "img-src 'self' data: https://images.unsplash.com https://randomuser.me",
-    "font-src 'self' https://fonts.gstatic.com",
+    "style-src-elem 'self' 'nonce-" + nonce + "' https://cdnjs.cloudflare.com https://fonts.googleapis.com",
+    "style-src-attr 'unsafe-inline'",
+    "img-src 'self' data: blob: https://images.unsplash.com https://randomuser.me https://lh3.googleusercontent.com",
+    "font-src 'self' data: https://cdnjs.cloudflare.com https://fonts.gstatic.com",
     "connect-src 'self'",
-    "frame-src https://www.youtube.com",
+    "media-src 'self' blob:",
+    "frame-src https://www.youtube.com https://www.youtube-nocookie.com",
+    "worker-src 'self' blob:",
+    "manifest-src 'self'",
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
+    "upgrade-insecure-requests",
   ].join('; ');
 }
 
 /**
  * Minimal CSP for JSON API responses.
- * Prevents resource loading if an API response is somehow rendered as HTML.
  */
-export const API_CSP = "default-src 'none'; frame-ancestors 'none'";
+export const API_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
 // ── Nonce Injection ───────────────────────────────────────
 
+function replaceNonceAttribute(attrs: string, nonce: string): string {
+  const withoutExistingNonce = attrs.replace(/\snonce\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  return ` nonce="${nonce}"${withoutExistingNonce}`;
+}
+
 /**
- * Injects nonce="..." into every <script> and <style> opening tag in the HTML.
- *
- * Handles:
- *   <script>             → <script nonce="...">
- *   <script src="...">   → <script nonce="..." src="...">
- *   <style>              → <style nonce="...">
- *   <style type="...">   → <style nonce="..." type="...">
- *
- * If a tag already has a nonce attribute, it is replaced with the fresh one.
+ * Injects a fresh nonce into every script and style opening tag.
+ * Existing nonce attributes are replaced rather than duplicated.
  */
 export function injectNonces(html: string, nonce: string): string {
-  // Inject nonce into <script> tags
-  html = html.replace(/<script(\s[^>]*)?>/gi, (_match, attrs) => {
-    return '<script nonce="' + nonce + '"' + (attrs || '') + '>';
+  html = html.replace(/<script(\s[^>]*)?>/gi, (_match, attrs = '') => {
+    return `<script${replaceNonceAttribute(attrs, nonce)}>`;
   });
 
-  // Inject nonce into <style> tags
-  html = html.replace(/<style(\s[^>]*)?>/gi, (_match, attrs) => {
-    return '<style nonce="' + nonce + '"' + (attrs || '') + '>';
+  html = html.replace(/<style(\s[^>]*)?>/gi, (_match, attrs = '') => {
+    return `<style${replaceNonceAttribute(attrs, nonce)}>`;
   });
 
   return html;
@@ -94,67 +80,48 @@ export function injectNonces(html: string, nonce: string): string {
 
 // ── Security Header Setters ───────────────────────────────
 
-/**
- * Sets all security headers on an HTML response, including the strict
- * nonce-based CSP.
- */
 export function setHtmlSecurityHeaders(headers: Headers, nonce: string): void {
   headers.set('Content-Security-Policy', buildCsp(nonce));
   setCommonSecurityHeaders(headers);
 }
 
 /**
- * Sets security headers for non-HTML static assets (CSS, JS, images, fonts).
- * Does NOT set CSP since it has no effect on non-HTML responses and can
- * cause issues with asset loading if misconfigured.
+ * Security headers for non-HTML assets. CSP is intentionally omitted because
+ * it is enforced by the containing HTML document.
  */
 export function setAssetSecurityHeaders(headers: Headers): void {
-  // PP-SEC-042: X-XSS-Protection is obsolete — omitted
   headers.set('X-Content-Type-Options', 'nosniff');
-  headers.set('X-Frame-Options', 'DENY');
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+  headers.set('Cross-Origin-Resource-Policy', 'same-origin');
 }
 
-/**
- * Sets security headers on JSON API responses, including a restrictive
- * CSP that blocks all resource loading.
- */
 export function setApiSecurityHeaders(headers: Headers): void {
   headers.set('Content-Security-Policy', API_CSP);
   setCommonSecurityHeaders(headers);
 }
 
-/**
- * Common security headers for all response types.
- */
 function setCommonSecurityHeaders(headers: Headers): void {
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('X-Frame-Options', 'DENY');
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+  headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
 }
 
 // ── Path Detection ────────────────────────────────────────
 
 /**
- * Returns true if the request path should be served as an HTML page
- * (i.e. needs nonce injection and a full CSP).
- *
- * Covers:
- *   /                 → index.html
- *   /index.html       → explicit
- *   /admin.html       → explicit
- *   /properties.html  → explicit
- *   etc.
+ * Returns true if the request path should be served as HTML.
  */
 export function isHtmlPath(path: string): boolean {
   if (path === '/' || path === '') return true;
-  // Known static extensions → not HTML
-  const staticExts = /\.(css|js|png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|eot|map|json|xml|txt)$/i;
+
+  const staticExts = /\.(css|js|png|jpg|jpeg|gif|webp|avif|svg|ico|woff|woff2|ttf|eot|map|json|xml|txt|pdf|mp4|webm|mov)$/i;
   if (staticExts.test(path)) return false;
-  // .html explicitly
+
   if (/\.html$/i.test(path)) return true;
-  // Clean URLs (Cloudflare strips .html) — try as HTML
+
+  // Cloudflare clean URLs remove the .html suffix.
   return !path.includes('.');
 }
