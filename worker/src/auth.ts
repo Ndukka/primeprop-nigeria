@@ -619,7 +619,8 @@ authRoutes.get('/my-listings', requireAuth, async (c) => {
   ).bind(user.id).all();
 
   // Return full listing data so agent dashboard can edit properly
-  return c.json({ success: true, data: results.map(rowToListing) });
+  const isAdmin = user.role === 'admin';
+  return c.json({ success: true, data: results.map((r: any) => rowToListing(r, isAdmin)) });
 });
 
 // ── Google OAuth ───────────────────────────────────────────

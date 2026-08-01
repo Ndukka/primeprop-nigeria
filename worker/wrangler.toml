@@ -30,6 +30,10 @@ name = "RATE_LIMITER"
 class_name = "RateLimiter"
 
 # Static assets (excludes controlled by ../.assetsignore)
+# PP-SEC-010: run_worker_first ensures the Worker can apply security headers
+# and inject nonces before serving static HTML files.
 [assets]
-directory = "../"
+binding = "ASSETS"
+directory = "../public"
 not_found_handling = "none"
+run_worker_first = true

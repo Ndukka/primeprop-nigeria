@@ -3,11 +3,34 @@ import { cors } from 'hono/cors';
 import { authRoutes, requireAuth, requireRole, csrfProtection } from './auth';
 import { safeJsonParse, isYouTube, rowToListing } from './utils';
 import { RateLimiter } from './rate-limiter';
-import type { D1Database, R2Bucket } from '@cloudflare/workers-types';
+import {
+  detectFileType,
+  validateFilename,
+  getSafeContentType,
+  requiresAttachmentDisposition,
+  validateImageHeaders,
+  ALLOWED_CONTENT_TYPES,
+  MAX_IMAGE_SIZE,
+  MAX_RISKY_SIZE,
+  MAX_FILES_PER_REQUEST,
+  MAX_UPLOADS_PER_USER_PER_DAY,
+  getR2FolderPrefix,
+  isRiskyType,
+} from './file-validator';
+import type { D1Database, R2Bucket, Fetcher } from '@cloudflare/workers-types';
+import {
+  generateNonce,
+  injectNonces,
+  setHtmlSecurityHeaders,
+  setAssetSecurityHeaders,
+  setApiSecurityHeaders,
+  isHtmlPath,
+} from './security-headers';
 
 type Bindings = {
   DB: D1Database;
   IMAGES: R2Bucket;
+  ASSETS: Fetcher;
   JWT_SECRET: string;
   ENVIRONMENT: string;
   RATE_LIMITER: DurableObjectNamespace<RateLimiter>;
@@ -19,62 +42,58 @@ type Variables = {
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-// ── Security Headers ──────────────────────────────────────
+// ── Security Headers (API routes only) ────────────────────
+// PP-SEC-010 / PP-SEC-011: HTML pages are handled by the fetch wrapper below
+// which injects per-request nonces and sets a strict CSP. This middleware
+// only applies to API/auth routes and sets a restrictive CSP appropriate
+// for JSON responses.
 app.use('*', async (c, next) => {
   await next();
-  c.res.headers.set('X-Content-Type-Options', 'nosniff');
-  c.res.headers.set('X-Frame-Options', 'DENY');
-  // PP-SEC-042: X-XSS-Protection is obsolete — removed. Rely on strict CSP instead.
-  c.res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  c.res.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
-  c.res.headers.set('Content-Security-Policy', 
-    "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; " +
-    "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; " +
-    "img-src 'self' data: https: blob:; " +
-    "font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; " +
-    "media-src 'self' https:; " +
-    "connect-src 'self' https:; " +
-    "frame-ancestors 'none';"
-  );
+  setApiSecurityHeaders(c.res.headers);
 });
 
-// ── CORS + Cache ──────────────────────────────────────────
+// ── CORS ──────────────────────────────────────────────────
+// PP-SEC-018: Clean CORS — reject unknown origins, no localhost in production
 const ALLOWED_ORIGINS = [
   'https://primeprop-worker.ndupsn.workers.dev',
   'https://primeprop.ng',
-  'http://localhost:3001',
-  'http://localhost:8787',
 ];
-
-// Cache GET responses 60s
-app.use('*', async (c, next) => {
-  await next(); // (caching handled per-route)
-});
 
 app.use('*', cors({
   origin: (origin) => {
     // Allow requests with no origin (server-to-server, mobile apps, curl)
     if (!origin) return '*';
-    // Check against whitelist
+    // Check against exact allowlist
     if (ALLOWED_ORIGINS.includes(origin)) return origin;
-    // In development, allow all localhost
-    if (origin.startsWith('http://localhost:')) return origin;
-    return ALLOWED_ORIGINS[0]; // Default to production URL
+    // Reject unknown origins — don't leak a production origin in the response
+    return null;
   },
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
   maxAge: 86400,
+  credentials: true,
 }));
+
+// Vary: Origin for proper CDN caching of CORS responses
+app.use('*', async (c, next) => {
+  await next();
+  if (c.req.header('Origin')) {
+    c.res.headers.set('Vary', 'Origin');
+  }
+});
 
 // ── Rate Limiting (Durable Object backed) ────────────────
 // Uses a Durable Object for shared state across all Worker requests.
-// This fixes the in-memory Map issue where each request had its own isolate.
+// PP-SEC-019: Granular per-route rate limits.
 const RATE_LIMITS: Record<string, number> = {
-  'auth:login': 20,
-  'auth:register': 10,
-  'api:write': 200,
-  'api:read': 1000,
+  'auth:login': 10,              // 10 login attempts/min
+  'auth:signup': 3,              // 3 signups/min
+  'auth:register': 5,            // 5 admin registrations/min
+  'auth:forgot-password': 3,     // 3 reset requests/min
+  'auth:reset-password': 3,      // 3 reset attempts/min
+  'api:upload': 10,              // 10 uploads/min
+  'api:write': 60,               // 60 writes/min
+  'api:read': 300,               // 300 reads/min (was 1000)
 };
 
 // Rate limiting middleware — covers both /api/* and /auth/*
@@ -92,7 +111,11 @@ async function rateLimitMiddleware(c: any, next: any) {
   
   let limitKey = 'api:read';
   if (path === '/auth/login' && method === 'POST') limitKey = 'auth:login';
+  else if (path === '/auth/signup' && method === 'POST') limitKey = 'auth:signup';
   else if (path === '/auth/register' && method === 'POST') limitKey = 'auth:register';
+  else if (path === '/auth/forgot-password' && method === 'POST') limitKey = 'auth:forgot-password';
+  else if (path === '/auth/reset-password' && method === 'POST') limitKey = 'auth:reset-password';
+  else if (path === '/api/images/upload' && method === 'POST') limitKey = 'api:upload';
   else if (['POST', 'PUT', 'DELETE'].includes(method)) limitKey = 'api:write';
 
   const limit = RATE_LIMITS[limitKey] || 200;
@@ -180,31 +203,28 @@ app.get('/api/listings', async (c) => {
 
   // Sort — whitelist validated, no SQL injection
   const sort = sanitizeEnum(q.sort, VALID_SORT, 'featured');
-  if (sort === 'price-asc') sql += ' ORDER BY price ASC';
-  else if (sort === 'price-desc') sql += ' ORDER BY price DESC';
-  else if (sort === 'newest') sql += ' ORDER BY id DESC';
-  else sql += ' ORDER BY featured DESC, id DESC';
+  let orderClause = ' ORDER BY featured DESC, id DESC';
+  if (sort === 'price-asc') orderClause = ' ORDER BY price ASC';
+  else if (sort === 'price-desc') orderClause = ' ORDER BY price DESC';
+  else if (sort === 'newest') orderClause = ' ORDER BY id DESC';
 
-  const countResult = await db.prepare(`SELECT COUNT(*) as c FROM (${sql})`).bind(...params).first<{c:number}>();
+  // PP-SEC-026: Build WHERE clause separately — unordered COUNT, ordered data query
+  const whereClause = sql.replace('SELECT * FROM listings WHERE 1=1', '');
+  
+  // PP-SEC-025: Mandatory pagination — cap at 100 items max
+  const countResult = await db.prepare(`SELECT COUNT(*) as c FROM listings WHERE 1=1 ${whereClause}`).bind(...params).first<{c:number}>();
   const totalCount = countResult?.c || 0;
 
-  const hasPagination = q.page !== undefined || q.limit !== undefined;
-  if (hasPagination) {
-    const p = Math.max(1, Math.min(1000, sanitizeNumber(q.page, 1)));
-    const l = Math.max(1, Math.min(100, sanitizeNumber(q.limit, 9)));
-    sql += ` LIMIT ${l} OFFSET ${(p - 1) * l}`;
-  }
+  const p = Math.max(1, Math.min(1000, Math.floor(sanitizeNumber(q.page, 1))));
+  const l = Math.max(1, Math.min(100, Math.floor(sanitizeNumber(q.limit, 20))));  // default 20, max 100
+  const totalPages = Math.ceil(totalCount / l) || 1;
+  const offset = (p - 1) * l;
 
-  const { results } = await db.prepare(sql).bind(...params).all();
-  const data = results.map(rowToListing);
+  // PP-SEC-026: Separate ordered data query
+  const { results } = await db.prepare(`SELECT * FROM listings WHERE 1=1 ${whereClause} ${orderClause} LIMIT ${l} OFFSET ${offset}`).bind(...params).all();
+  const data = results.map(r => rowToListing(r));
 
-  if (hasPagination) {
-    const p = Math.max(1, Math.min(1000, sanitizeNumber(q.page, 1)));
-    const l = Math.max(1, Math.min(100, sanitizeNumber(q.limit, 9)));
-    const totalPages = Math.ceil(totalCount / l);
-    return c.json({ success: true, count: totalCount, page: p, limit: l, totalPages, hasNext: p < totalPages, hasPrev: p > 1, data });
-  }
-  return c.json({ success: true, count: totalCount, data });
+  return c.json({ success: true, count: totalCount, page: p, limit: l, totalPages, hasNext: p < totalPages, hasPrev: p > 1, data });
 });
 
 app.get('/api/listings/:id', async (c) => {
@@ -267,7 +287,7 @@ app.post('/api/listings', requireAuth, async (c) => {
   ).run();
 
   const created = await c.env.DB.prepare('SELECT * FROM listings WHERE id = ?').bind(result.meta.last_row_id).first();
-  return c.json({ success: true, data: rowToListing(created) }, 201);
+  return c.json({ success: true, data: rowToListing(created, isAdmin) }, 201);
 });
 
 app.put('/api/listings/:id', requireAuth, async (c) => {
@@ -335,7 +355,7 @@ app.put('/api/listings/:id', requireAuth, async (c) => {
 
   await c.env.DB.prepare(`UPDATE listings SET ${setClauses.join(', ')} WHERE id = ?`).bind(...values, id).run();
   const updated = await c.env.DB.prepare('SELECT * FROM listings WHERE id = ?').bind(id).first();
-  return c.json({ success: true, data: rowToListing(updated) });
+  return c.json({ success: true, data: rowToListing(updated, isAdmin) });
 });
 
 app.delete('/api/listings/:id', requireAuth, async (c) => {
@@ -401,10 +421,16 @@ app.delete('/api/districts/:id', requireAuth, requireRole('admin'), async (c) =>
 });
 
 // ── File Upload (single or multiple) ─────────────────────
+// PP-SEC-015: Secure file upload with magic-byte validation, filename checks,
+// per-user daily quotas, crypto-random keys, and safe content-type enforcement.
 app.post('/api/images/upload', requireAuth, async (c) => {
+  const user = c.get('user');
+  const db = c.env.DB;
+
+  // ── Step 1: Extract files from form data ───────────────
   const formData = await c.req.raw.formData();
   const files: File[] = [];
-  
+
   // Support both "file" (single) and "files" (multiple) field names
   for (const key of ['files', 'file']) {
     const entries = formData.getAll(key);
@@ -412,54 +438,159 @@ app.post('/api/images/upload', requireAuth, async (c) => {
       if (entry && typeof entry === 'object' && 'name' in entry && 'size' in entry) files.push(entry as any);
     }
   }
-  
+
   if (files.length === 0) {
     return c.json({ success: false, message: 'No file provided. Use "file" for single or "files" for multiple uploads.' }, 400);
   }
 
-  const allowedTypes = [
-    'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif',
-    'application/pdf',
-    'video/mp4', 'video/webm', 'video/quicktime',
-  ];
+  // ── Step 2: File count limit ───────────────────────────
+  if (files.length > MAX_FILES_PER_REQUEST) {
+    return c.json({ success: false, message: `Too many files. Maximum ${MAX_FILES_PER_REQUEST} per request.` }, 400);
+  }
 
-  const results = [];
+  // ── Step 3: Per-user daily upload quota ────────────────
+  const today = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+  const dailyLog = await db.prepare(
+    'SELECT count FROM upload_logs WHERE user_id = ? AND upload_date = ?'
+  ).bind(user.id, today).first<{ count: number }>();
+  const dailyCount = dailyLog?.count || 0;
+
+  if (dailyCount >= MAX_UPLOADS_PER_USER_PER_DAY) {
+    return c.json({ success: false, message: `Daily upload limit reached (${MAX_UPLOADS_PER_USER_PER_DAY}/day). Try again tomorrow.` }, 429);
+  }
+
+  const remainingQuota = MAX_UPLOADS_PER_USER_PER_DAY - dailyCount;
+  if (files.length > remainingQuota) {
+    return c.json({ success: false, message: `You have ${remainingQuota} upload(s) remaining today. Received ${files.length} file(s).` }, 400);
+  }
+
+  // ── Step 4: Process each file with full validation ─────
+  const results: Array<{ key?: string; url?: string; type?: string; size?: number; name?: string; error?: string }> = [];
+  let successfulUploads = 0;
+
   for (const file of files) {
-    if (!allowedTypes.includes(file.type)) {
-      results.push({ error: `Skipped ${file.name}: invalid type ${file.type}` });
+    // --- 4a: Filename validation (double extensions, dangerous exts, traversal) ---
+    const fnameResult = validateFilename(file.name);
+    if (!fnameResult.valid) {
+      results.push({ error: fnameResult.error, name: file.name });
       continue;
     }
 
-    const isVideo = file.type.startsWith('video/');
-    const maxSize = isVideo ? 50 * 1024 * 1024 : 10 * 1024 * 1024;
+    // --- 4b: Pre-filter MIME type (reject clearly invalid types early) ---
+    if (!ALLOWED_CONTENT_TYPES.has(file.type)) {
+      results.push({ error: `Invalid content type: ${file.type}`, name: file.name });
+      continue;
+    }
+
+    // --- 4c: Size check ---
+    const isRisky = isRiskyType(file.type);
+    const maxSize = isRisky ? MAX_RISKY_SIZE : MAX_IMAGE_SIZE;
     if (file.size > maxSize) {
-      results.push({ error: `Skipped ${file.name}: too large (max ${isVideo ? '50MB' : '10MB'})` });
+      results.push({ error: `File too large: ${file.name} (max ${isRisky ? '50MB' : '10MB'})`, name: file.name });
       continue;
     }
 
-    let folder = 'images';
-    if (file.type === 'application/pdf') folder = 'documents';
-    else if (file.type.startsWith('video/')) folder = 'videos';
+    // --- 4d: Magic byte validation ---
+    // Read first 512 bytes (enough for all supported magic signatures)
+    let headerBytes: Uint8Array;
+    try {
+      const arrayBuffer = await file.slice(0, 512).arrayBuffer();
+      headerBytes = new Uint8Array(arrayBuffer);
+    } catch {
+      results.push({ error: `Failed to read file: ${file.name}`, name: file.name });
+      continue;
+    }
 
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const key = `listings/${folder}/${Date.now()}-${safeName}`;
-    await c.env.IMAGES.put(key, file.stream() as any, { httpMetadata: { contentType: file.type } });
+    if (headerBytes.length < 4) {
+      results.push({ error: `File too small to validate: ${file.name}`, name: file.name });
+      continue;
+    }
+
+    const magicResult = detectFileType(headerBytes);
+    if (!magicResult.valid || !magicResult.detectedType) {
+      results.push({ error: `File signature not recognized: ${file.name} (claimed ${file.type})`, name: file.name });
+      continue;
+    }
+
+    // The magic-bytes-detected type must be compatible with the claimed MIME type
+    if (magicResult.detectedType !== file.type) {
+      results.push({ error: `Content type mismatch: ${file.name} claims ${file.type} but is actually ${magicResult.detectedType}`, name: file.name });
+      continue;
+    }
+
+    // --- 4e: Image-specific header integrity checks ---
+    if (file.type.startsWith('image/')) {
+      const imgHeaderResult = validateImageHeaders(headerBytes, file.type);
+      if (!imgHeaderResult.valid) {
+        results.push({ error: `${imgHeaderResult.error}: ${file.name}`, name: file.name });
+        continue;
+      }
+    }
+
+    // --- 4f: All checks passed — store in R2 with crypto-random key ---
+    const folder = getR2FolderPrefix(file.type);
+    const uuid = crypto.randomUUID();
+    const ext = fnameResult.extension!;
+    const key = `listings/${folder}/${uuid}.${ext}`;
+
+    await c.env.IMAGES.put(key, file.stream() as any, {
+      httpMetadata: { contentType: file.type }
+    });
+
     results.push({ key, url: `/api/images/${key}`, type: file.type, size: file.size, name: file.name });
+    successfulUploads++;
+  }
+
+  // ── Step 5: Record daily upload count ──────────────────
+  if (successfulUploads > 0) {
+    await db.prepare(`
+      INSERT INTO upload_logs (user_id, upload_date, count)
+      VALUES (?, ?, ?)
+      ON CONFLICT(user_id, upload_date) DO UPDATE SET
+        count = count + ?,
+        updated_at = datetime('now')
+    `).bind(user.id, today, successfulUploads, successfulUploads).run();
   }
 
   return c.json({ success: true, data: results }, 201);
 });
 
+// ── File Retrieval ──────────────────────────────────────
+// PP-SEC-015: Safe Content-Type whitelist (never trust user-supplied metadata).
+// Force Content-Disposition: attachment for PDFs/videos to prevent
+// inline script execution and drive-by-downloads.
 app.get('/api/images/:key', async (c) => {
-  c.header('Cache-Control', 'public, max-age=31536000, immutable');
   const key = c.req.param('key');
+
   // Prevent directory traversal
   if (key.includes('..') || key.startsWith('/')) return c.notFound();
+
   const object = await c.env.IMAGES.get(key);
   if (!object) return c.notFound();
-  const headers = new Headers() as any;
-  object.writeHttpMetadata(headers);
-  headers.set('cache-control', 'public, max-age=31536000');
+
+  // Extract extension from key for safe content-type lookup
+  const dotIdx = key.lastIndexOf('.');
+  const ext = dotIdx > -1 ? key.slice(dotIdx + 1).toLowerCase() : '';
+  const safeContentType = getSafeContentType(ext);
+
+  if (!safeContentType) {
+    // Unknown extension — reject rather than serve with unknown type
+    return c.json({ success: false, message: 'Unsupported file type' }, 415);
+  }
+
+  const headers = new Headers();
+  headers.set('Content-Type', safeContentType);
+  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+
+  // Force download for PDFs and videos (prevents inline script execution)
+  if (requiresAttachmentDisposition(ext)) {
+    const safeFilename = key.split('/').pop() || 'download';
+    headers.set('Content-Disposition', `attachment; filename="${safeFilename}"`);
+  }
+
+  // Security headers
+  headers.set('X-Content-Type-Options', 'nosniff');
+
   return new Response(object.body as any, { headers: headers as any });
 });
 
@@ -515,12 +646,127 @@ app.all('/api/*', (c) => {
 });
 
 // ── Catch-all: 404 for unknown non-API routes ────────────
-// Static files are served by the [assets] binding before Hono, so this
-// only triggers for truly unknown routes (e.g., /nonexistent-page)
+// With run_worker_first = true, this only triggers for API/auth paths
+// that don't match any defined route.
 app.notFound((c) => {
   return c.json({ success: false, message: 'Not found' }, 404);
 });
 
-// ── Export ────────────────────────────────────────────────
-export default app;
+// ── Fetch Handler ─────────────────────────────────────────
+// PP-SEC-010 / PP-SEC-011: Custom fetch handler that wraps the Hono app.
+// HTML pages are intercepted, served from the ASSETS binding with per-request
+// nonce injection and a strict Content-Security-Policy header.
+// API routes are delegated to Hono. Static assets (CSS, JS, images, fonts)
+// are served from ASSETS with security headers but no CSP.
+export default {
+  async fetch(request: Request, env: Bindings, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    // 1. API and auth routes — delegate to Hono
+    if (path.startsWith('/api/') || path.startsWith('/auth/')) {
+      return app.fetch(request, env, ctx);
+    }
+
+    // 2. HTML pages — serve with per-request nonce injection + strict CSP
+    if (isHtmlPath(path)) {
+      return serveHtmlWithNonce(request, env, path);
+    }
+
+    // 3. All other static assets (CSS, JS, images, fonts, etc.)
+    //    Serve from ASSETS binding with basic security headers.
+    try {
+      const assetResponse = await env.ASSETS.fetch(request);
+      if (assetResponse.ok) {
+        const headers = new Headers(assetResponse.headers);
+        setAssetSecurityHeaders(headers);
+        return new Response(assetResponse.body, {
+          status: assetResponse.status,
+          statusText: assetResponse.statusText,
+          headers,
+        });
+      }
+    } catch (_e) {
+      // ASSETS binding might not have the file; fall through to 404
+    }
+
+    // 4. 404 fallback — not an API route, not an HTML page, not a static asset
+    return new Response('Not Found', { status: 404 });
+  },
+};
+
 export { RateLimiter };
+
+// ── HTML Serving Helper ────────────────────────────────────
+
+/**
+ * Serves an HTML page from the ASSETS binding with per-request nonce injection
+ * and strict Content-Security-Policy.
+ *
+ * Steps:
+ *   1. Rewrite / to /index.html for ASSETS lookup
+ *   2. Fetch the HTML from ASSETS
+ *   3. Generate a fresh random nonce
+ *   4. Inject nonce="..." into every <script> and <style> tag
+ *   5. Set the strict CSP header referencing the nonce
+ *   6. Set all other security headers (HSTS, X-Frame-Options, etc.)
+ */
+async function serveHtmlWithNonce(
+  request: Request,
+  env: Bindings,
+  path: string,
+): Promise<Response> {
+  // Rewrite / to /index.html so the ASSETS binding finds the file
+  let assetPath = path;
+  if (assetPath === '/' || assetPath === '') {
+    assetPath = '/index.html';
+  }
+
+  const assetUrl = new URL(request.url);
+  assetUrl.pathname = assetPath;
+  const assetRequest = new Request(assetUrl.toString(), request);
+
+  let assetResponse: Response;
+  try {
+    assetResponse = await env.ASSETS.fetch(assetRequest);
+  } catch (_e) {
+    return new Response('Not Found', { status: 404 });
+  }
+
+  if (!assetResponse.ok) {
+    // Let 404s from ASSETS pass through as-is
+    return assetResponse;
+  }
+
+  // Verify the response is actually HTML (guard against misconfigured routing)
+  const contentType = assetResponse.headers.get('Content-Type') || '';
+  if (!contentType.includes('text/html')) {
+    // Not HTML — return as-is (shouldn't normally happen for .html paths)
+    return assetResponse;
+  }
+
+  // Generate a fresh nonce and inject it into all script/style tags
+  const nonce = generateNonce();
+  const html = await assetResponse.text();
+  const injectedHtml = injectNonces(html, nonce);
+
+  // Build the response with the injected HTML
+  const response = new Response(injectedHtml, {
+    status: assetResponse.status,
+    statusText: assetResponse.statusText,
+  });
+
+  // Copy over original headers except CSP (we set our own strict one)
+  assetResponse.headers.forEach((value, key) => {
+    const lower = key.toLowerCase();
+    if (lower !== 'content-security-policy' && lower !== 'content-security-policy-report-only') {
+      response.headers.set(key, value);
+    }
+  });
+
+  // Ensure correct Content-Type and set strict security headers
+  response.headers.set('Content-Type', 'text/html; charset=utf-8');
+  setHtmlSecurityHeaders(response.headers, nonce);
+
+  return response;
+}

@@ -10,18 +10,33 @@ export function isYouTube(url: string): boolean {
   return /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)/i.test(url);
 }
 
-export function rowToListing(row: any) {
+// PP-SEC-020: Explicit DTO — never spread raw database rows into API responses.
+// Public listing response: only approved fields, no internal columns (created_by, etc).
+export function rowToListing(row: any, isAdmin: boolean = false) {
   if (!row) return null;
   const agentName = row.agent_name || '';
-  return {
-    ...row,
+
+  // Base fields always safe for public
+  const dto: Record<string, any> = {
+    id: row.id,
+    title: row.title || '',
+    type: row.type || 'rent',
+    propertyType: row.property_type || 'apartment',
     price: Number(row.price),
+    priceUnit: row.price_unit || '',
+    priceDisplay: `₦${Number(row.price).toLocaleString()}`,
+    location: row.location || '',
+    area: row.area || '',
+    city: row.city || '',
     bedrooms: Number(row.bedrooms || 0),
     bathrooms: Number(row.bathrooms || 0),
     sqft: Number(row.sqft || 0),
     parking: Number(row.parking || 0),
+    description: row.description || '',
+    availability: row.availability || 'Immediately',
     featured: Boolean(row.featured),
     verified: Boolean(row.verified),
+    badge: row.badge || '',
     amenities: safeJsonParse(row.amenities, []),
     images: safeJsonParse(row.images, []).map((url: string) => ({
       url,
@@ -29,11 +44,10 @@ export function rowToListing(row: any) {
             url.match(/\.(mp4|webm|mov)(\?|$)/i) ? 'video' :
             url.match(/\.(pdf)(\?|$)/i) ? 'pdf' : 'image'
     })),
-    priceDisplay: `₦${Number(row.price).toLocaleString()}`,
     agent: {
       name: agentName,
       role: row.agent_role || '',
-      phone: row.agent_phone || '',
+      phone: '',  // PP-SEC-020: Agent phone is admin-only
       avatar: row.agent_avatar || '',
       initials: agentName ? agentName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) : 'NA',
     },
@@ -44,5 +58,16 @@ export function rowToListing(row: any) {
       serviceCharge: Number(row.service_charge || 0),
       total: Number(row.annual_rent) + Number(row.agency_fee || 0) + Number(row.security_deposit || 0) + Number(row.service_charge || 0),
     } : null,
+    createdAt: row.created_at || '',
+    updatedAt: row.updated_at || '',
   };
+
+  // Admin-only fields (internal ownership, agent contact, moderation data)
+  if (isAdmin) {
+    dto.createdBy = row.created_by;
+    dto.agent.phone = row.agent_phone || '';
+    dto.moderationStatus = row.moderation_status || '';
+  }
+
+  return dto;
 }
