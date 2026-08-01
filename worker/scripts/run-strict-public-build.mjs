@@ -18,6 +18,25 @@ const preparedDir = path.join(repositoryDir, '.strict-public-source');
 const backupDir = path.join(repositoryDir, '.public-source-backup');
 const appPath = path.join(preparedDir, 'js', 'app.js');
 
+const SKELETON_MARKUP = [
+  '<div class="pp-loading-skeleton" role="status" aria-label="Loading content">',
+  '<span class="pp-loading-skeleton__line pp-loading-skeleton__line--wide"></span>',
+  '<span class="pp-loading-skeleton__line"></span>',
+  '<span class="pp-loading-skeleton__line pp-loading-skeleton__line--short"></span>',
+  '<span class="pp-visually-hidden">Loading content</span>',
+  '</div>',
+].join('');
+
+const SKELETON_STYLES = `
+.pp-loading-skeleton{display:grid;gap:10px;width:min(100%,560px);margin:0 auto;padding:18px 20px}
+.pp-loading-skeleton__line{display:block;height:12px;border-radius:999px;background:linear-gradient(90deg,#e2e8f0 25%,#f8fafc 50%,#e2e8f0 75%);background-size:200% 100%;animation:pp-skeleton-shimmer 1.2s ease-in-out infinite}
+.pp-loading-skeleton__line--wide{height:18px;width:92%}
+.pp-loading-skeleton__line--short{width:58%}
+.pp-visually-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+@keyframes pp-skeleton-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@media(prefers-reduced-motion:reduce){.pp-loading-skeleton__line{animation:none;background:#e2e8f0}}
+`;
+
 function replaceRequired(source, pattern, replacement, label) {
   const next = source.replace(pattern, replacement);
   if (next === source) {
@@ -52,8 +71,33 @@ function convertEventPropertyAssignments(source) {
   });
 }
 
+function replaceLegacySpinnerMarkup(source) {
+  return source.replace(
+    /<div\b[^>]*\bclass=(['"])[^'"]*\bspinner\b[^'"]*\1[^>]*>\s*<\/div>/gi,
+    SKELETON_MARKUP,
+  );
+}
+
+function removeLegacySpinnerCss(source) {
+  return source
+    .replace(/\.spinner\s*\{[^}]*\}/gi, '')
+    .replace(/@keyframes\s+spin\s*\{(?:[^{}]|\{[^{}]*\})*\}/gi, '');
+}
+
+function transformLegacyLoadingHtml(source) {
+  let output = replaceLegacySpinnerMarkup(source);
+  output = removeLegacySpinnerCss(output);
+
+  if (output.includes('pp-loading-skeleton') && !output.includes('.pp-loading-skeleton{')) {
+    output = output.replace('</head>', `<style>${SKELETON_STYLES}</style>\n</head>`);
+  }
+  return output;
+}
+
 function transformScriptSource(source) {
-  return convertEventPropertyAssignments(convertGeneratedStyleAttributes(source));
+  return convertEventPropertyAssignments(
+    convertGeneratedStyleAttributes(replaceLegacySpinnerMarkup(source)),
+  );
 }
 
 function transformInlineScripts(html) {
@@ -104,7 +148,7 @@ async function prepareSource() {
       prepared = transformScriptSource(source);
       assertPreparedScriptSource(prepared, relativePath);
     } else {
-      prepared = transformInlineScripts(source);
+      prepared = transformLegacyLoadingHtml(transformInlineScripts(source));
       const inlineSources = [...prepared.matchAll(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)]
         .map(match => match[1]);
       for (const inlineSource of inlineSources) {
