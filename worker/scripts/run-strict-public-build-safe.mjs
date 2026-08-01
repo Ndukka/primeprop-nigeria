@@ -8,15 +8,6 @@ const workerDir = path.resolve(scriptDir, '..');
 const repositoryDir = path.resolve(workerDir, '..');
 const strictBuildPath = path.join(scriptDir, 'run-strict-public-build.mjs');
 
-const ICON_STYLE_REPLACEMENT = [
-  "icon.style.fontSize = '1.5rem';",
-  "          icon.style.color = '#64748b';",
-  "          icon.style.position = 'absolute';",
-  "          icon.style.top = '50%';",
-  "          icon.style.left = '50%';",
-  "          icon.style.transform = 'translate(-50%,-50%)';",
-].join('\n');
-
 const SOURCE_PATCHES = [
   {
     relativePath: 'public/login.html',
@@ -40,6 +31,7 @@ const SOURCE_PATCHES = [
         ].join('\n'),
       ],
     ],
+    expandCssText: false,
   },
   {
     relativePath: 'public/admin.html',
@@ -52,11 +44,8 @@ const SOURCE_PATCHES = [
           '      });',
         ].join('\n'),
       ],
-      [
-        "icon.style.cssText = 'font-size:1.5rem;color:#64748b;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)';",
-        ICON_STYLE_REPLACEMENT,
-      ],
     ],
+    expandCssText: true,
   },
   {
     relativePath: 'public/agent.html',
@@ -69,13 +58,51 @@ const SOURCE_PATCHES = [
           '      });',
         ].join('\n'),
       ],
-      [
-        "icon.style.cssText = 'font-size:1.5rem;color:#64748b;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)';",
-        ICON_STYLE_REPLACEMENT,
-      ],
     ],
+    expandCssText: true,
   },
 ];
+
+function toCamelCase(property) {
+  return property.trim().replace(/-([a-z])/g, (_match, character) => character.toUpperCase());
+}
+
+function expandStaticCssTextAssignments(source, relativePath) {
+  const pattern = /^(\s*)([A-Za-z_$][\w$]*)\.style\.cssText\s*=\s*(['"])(.*?)\3;/gm;
+  let count = 0;
+
+  const prepared = source.replace(pattern, (_match, indentation, target, _quote, cssText) => {
+    const declarations = cssText
+      .split(';')
+      .map(declaration => declaration.trim())
+      .filter(Boolean)
+      .map(declaration => {
+        const separator = declaration.indexOf(':');
+        if (separator <= 0) {
+          throw new Error(`${relativePath}: invalid static cssText declaration: ${declaration}`);
+        }
+        return {
+          property: toCamelCase(declaration.slice(0, separator)),
+          value: declaration.slice(separator + 1).trim(),
+        };
+      });
+
+    if (declarations.length === 0) {
+      throw new Error(`${relativePath}: empty static cssText assignment.`);
+    }
+
+    count += 1;
+    return declarations
+      .map(({ property, value }) => `${indentation}${target}.style.${property} = ${JSON.stringify(value)};`)
+      .join('\n');
+  });
+
+  if (/\.style\.cssText\s*=/.test(prepared)) {
+    throw new Error(`${relativePath}: unsupported cssText assignment remains after normalization.`);
+  }
+
+  return { prepared, count };
+}
 
 function applyRequiredReplacements(source, relativePath, replacements) {
   let prepared = source;
@@ -99,15 +126,29 @@ function applyRequiredReplacements(source, relativePath, replacements) {
 
 const originals = new Map();
 let result;
+let expandedCssTextAssignments = 0;
 
 try {
   for (const patch of SOURCE_PATCHES) {
     const absolutePath = path.join(repositoryDir, patch.relativePath);
     const original = await readFile(absolutePath, 'utf8');
-    const prepared = applyRequiredReplacements(original, patch.relativePath, patch.replacements);
+    let prepared = applyRequiredReplacements(original, patch.relativePath, patch.replacements);
+
+    if (patch.expandCssText) {
+      const expansion = expandStaticCssTextAssignments(prepared, patch.relativePath);
+      prepared = expansion.prepared;
+      expandedCssTextAssignments += expansion.count;
+    }
+
     originals.set(absolutePath, original);
     await writeFile(absolutePath, prepared, 'utf8');
   }
+
+  console.log(JSON.stringify({
+    event: 'strict_source_normalization_completed',
+    files: SOURCE_PATCHES.length,
+    expandedCssTextAssignments,
+  }));
 
   result = spawnSync(process.execPath, [strictBuildPath], {
     cwd: workerDir,
