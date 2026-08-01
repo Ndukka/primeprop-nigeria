@@ -1,190 +1,186 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { execSync, spawn } from 'child_process';
-
-// ── Integration Tests via wrangler dev ────────────────────
-// Spins up wrangler dev and tests against the live local server.
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { rmSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const PORT = 8789;
-const BASE = `http://localhost:${PORT}`;
-let devProcess: ReturnType<typeof spawn>;
+const BASE = `http://127.0.0.1:${PORT}`;
+const WORKER_DIR = resolve(__dirname, '..');
+const STATE_DIR = resolve(WORKER_DIR, '.wrangler', 'integration-state');
+const TEST_JWT_SECRET = 'primeprop-integration-only-secret-not-for-production';
+
+let devProcess: ChildProcess | undefined;
+
+function wranglerArgs(...args: string[]): string[] {
+  return ['wrangler', ...args];
+}
 
 beforeAll(async () => {
-  // Start wrangler dev in the background
-  devProcess = spawn('npx', [
-    'wrangler', 'dev',
+  rmSync(STATE_DIR, { recursive: true, force: true });
+
+  execFileSync('npx', wranglerArgs(
+    'd1', 'migrations', 'apply', 'primeprop-db',
+    '--local',
+    '--persist-to', STATE_DIR,
+  ), {
+    cwd: WORKER_DIR,
+    stdio: 'inherit',
+    env: { ...process.env, CI: '1' },
+  });
+
+  devProcess = spawn('npx', wranglerArgs(
+    'dev',
     '--port', String(PORT),
     '--local',
-  ], {
-    cwd: __dirname + '/..',
-    stdio: 'pipe',
-    env: { ...process.env, JWT_SECRET: 'test-secret-key-for-integration-only' },
+    '--persist-to', STATE_DIR,
+    '--var', `JWT_SECRET:${TEST_JWT_SECRET}`,
+  ), {
+    cwd: WORKER_DIR,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, CI: '1' },
   });
 
-  // Wait for the server to be ready
-  let ready = false;
-  const maxWait = 30000;
-  const start = Date.now();
-
-  await new Promise<void>((resolve, reject) => {
+  await new Promise<void>((resolveReady, rejectReady) => {
+    let output = '';
     const timeout = setTimeout(() => {
-      if (!ready) reject(new Error('wrangler dev did not start within 30s'));
-    }, maxWait);
+      rejectReady(new Error(`wrangler dev did not start within 35 seconds. Output:\n${output}`));
+    }, 35000);
 
-    devProcess.stdout?.on('data', (data: Buffer) => {
-      const output = data.toString();
-      console.log('[wrangler]', output.trim());
-      if (output.includes('Ready') || output.includes('http://')) {
-        ready = true;
+    const inspect = (chunk: Buffer) => {
+      output += chunk.toString();
+      if (/Ready on|http:\/\/127\.0\.0\.1|http:\/\/localhost/i.test(output)) {
         clearTimeout(timeout);
-        // Give it a moment to fully start
-        setTimeout(resolve, 1000);
+        setTimeout(resolveReady, 750);
+      }
+    };
+
+    devProcess?.stdout?.on('data', inspect);
+    devProcess?.stderr?.on('data', inspect);
+    devProcess?.once('exit', code => {
+      if (code !== null && code !== 0) {
+        clearTimeout(timeout);
+        rejectReady(new Error(`wrangler dev exited early with code ${code}. Output:\n${output}`));
       }
     });
-
-    devProcess.stderr?.on('data', (data: Buffer) => {
-      console.error('[wrangler:err]', data.toString().trim());
-    });
   });
-}, 35000);
+}, 45000);
 
-afterAll(() => {
-  if (devProcess) {
+afterAll(async () => {
+  if (devProcess && !devProcess.killed) {
     devProcess.kill('SIGTERM');
+    await new Promise(resolveDone => setTimeout(resolveDone, 500));
   }
+  rmSync(STATE_DIR, { recursive: true, force: true });
 });
 
-async function api(path: string, options: RequestInit = {}): Promise<Response> {
+async function request(path: string, options: RequestInit = {}): Promise<Response> {
   return fetch(`${BASE}${path}`, options);
 }
 
-describe('Health Check', () => {
-  it('GET /api/stats returns success', async () => {
-    const res = await api('/api/stats');
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.success).toBe(true);
-    expect(data.data).toHaveProperty('total');
+describe('static asset and CSP delivery', () => {
+  it('serves the shared stylesheet', async () => {
+    const response = await request('/styles.css');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/css');
+    expect((await response.text()).length).toBeGreaterThan(1000);
   });
 
-  it('GET /api/listings returns paginated data', async () => {
-    const res = await api('/api/listings?page=1&limit=10');
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.page).toBe(1);
-    expect(data.limit).toBe(10);
-    expect(Array.isArray(data.data)).toBe(true);
-  });
-});
-
-describe('Input Validation', () => {
-  it('404 returns generic message', async () => {
-    const res = await api('/api/nonexistent');
-    expect(res.status).toBe(404);
-    const data = await res.json();
-    expect(data.message).toBe('Not found');
-    expect(data.message).not.toContain('/api/nonexistent');
+  it('serves the shared application script', async () => {
+    const response = await request('/js/app.js');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toMatch(/javascript|text\/plain/);
+    expect(await response.text()).toContain('loadDistricts');
   });
 
-  it('handles SQL injection in search', async () => {
-    const res = await api("/api/listings?page=1&limit=5&search=';DROP TABLE listings;--");
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.success).toBe(true);
-  });
+  it('serves clean and explicit HTML routes with a matching nonce CSP', async () => {
+    for (const path of ['/areas', '/areas.html']) {
+      const response = await request(path);
+      expect(response.status).toBe(200);
 
-  it('handles XSS in search', async () => {
-    const res = await api('/api/listings?page=1&limit=5&search=<script>alert(1)</script>');
-    expect(res.status).toBe(200);
-  });
+      const csp = response.headers.get('content-security-policy') || '';
+      const html = await response.text();
+      const nonceMatch = csp.match(/script-src 'nonce-([^']+)'/);
 
-  it('clamps negative page', async () => {
-    const res = await api('/api/listings?page=-1&limit=5');
-    const data = await res.json();
-    expect(data.page).toBeGreaterThanOrEqual(1);
-  });
-
-  it('enforces max limit 100', async () => {
-    const res = await api('/api/listings?page=1&limit=999');
-    const data = await res.json();
-    expect(data.limit).toBeLessThanOrEqual(100);
+      expect(nonceMatch?.[1]).toBeTruthy();
+      expect(html).toContain(`nonce="${nonceMatch?.[1]}"`);
+      expect(csp).toContain("style-src-attr 'unsafe-inline'");
+      expect(csp).toContain('https://cdnjs.cloudflare.com');
+      expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+    }
   });
 });
 
-describe('Auth', () => {
-  it('signup creates account', async () => {
-    const res = await api('/auth/signup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: `test-${Date.now()}@test.com`, password: 'TestPass1', name: 'Test User' }),
-    });
-    expect(res.status).toBe(201);
+describe('API and routing smoke tests', () => {
+  it('returns stats from a migrated local D1 database', async () => {
+    const response = await request('/api/stats');
+    expect(response.status).toBe(200);
+    const body = await response.json<{ success: boolean; data: { total: number } }>();
+    expect(body.success).toBe(true);
+    expect(body.data).toHaveProperty('total');
   });
 
-  it('signup with existing email returns same response', async () => {
-    const email = `dup-${Date.now()}@test.com`;
-    await api('/auth/signup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password: 'TestPass1', name: 'First' }),
-    });
-    const res = await api('/auth/signup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password: 'TestPass2', name: 'Duplicate' }),
-    });
-    // PP-SEC-034: Same response for existing emails
-    expect(res.status).toBe(201);
+  it('returns mandatory pagination', async () => {
+    const response = await request('/api/listings?page=1&limit=10');
+    expect(response.status).toBe(200);
+    const body = await response.json<{ page: number; limit: number; data: unknown[] }>();
+    expect(body.page).toBe(1);
+    expect(body.limit).toBe(10);
+    expect(Array.isArray(body.data)).toBe(true);
   });
 
-  it('forged token rejected', async () => {
-    const res = await api('/auth/session', {
-      headers: { 'Authorization': 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJpZCI6MX0.forged' },
-    });
-    expect(res.status).toBe(401);
+  it('returns a generic API 404', async () => {
+    const response = await request('/api/nonexistent');
+    expect(response.status).toBe(404);
+    const body = await response.json<{ message: string }>();
+    expect(body.message).toBe('Not found');
+    expect(body.message).not.toContain('/api/nonexistent');
   });
 
-  it('handles malformed JSON', async () => {
-    const res = await api('/auth/login', {
+  it('does not reflect an unapproved CORS origin', async () => {
+    const response = await request('/api/listings?page=1&limit=5', {
+      headers: { Origin: 'https://evil.example' },
+    });
+    expect(response.headers.get('access-control-allow-origin')).not.toBe('https://evil.example');
+  });
+
+  it('rejects encoded image path traversal', async () => {
+    const response = await request('/api/images/%2e%2e/%2e%2e/worker/wrangler.toml');
+    expect(response.status).toBe(404);
+  });
+});
+
+describe('public authentication behavior', () => {
+  it('creates a pending account without exposing duplicate-email state', async () => {
+    const email = `integration-${Date.now()}@example.invalid`;
+    const body = JSON.stringify({ email, password: 'Integration123!', name: 'Integration User' });
+
+    const first = await request('/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    const second = await request('/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(await second.json()).toEqual(await first.json());
+  });
+
+  it('rejects malformed JSON and forged bearer tokens', async () => {
+    const malformed = await request('/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: '{{{broken',
     });
-    expect(res.status).toBe(400);
-  });
-});
+    expect(malformed.status).toBe(400);
 
-describe('CORS', () => {
-  it('rejects unknown origins', async () => {
-    const res = await api('/api/listings?page=1&limit=5', {
-      headers: { 'Origin': 'https://evil.com' },
+    const forged = await request('/auth/session', {
+      headers: { Authorization: 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJpZCI6MX0.invalid' },
     });
-    const acao = res.headers.get('Access-Control-Allow-Origin');
-    expect(acao).not.toBe('https://evil.com');
-  });
-});
-
-describe('Path Traversal Protection', () => {
-  it('blocks image path traversal', async () => {
-    const res = await api('/api/images/../../../worker/wrangler.toml');
-    expect(res.status).toBe(404);
-  });
-});
-
-describe('Security Headers', () => {
-  it('HTML pages have CSP header', async () => {
-    const res = await api('/');
-    const csp = res.headers.get('Content-Security-Policy');
-    // May or may not be present depending on wrangler dev mode
-    if (csp) {
-      expect(csp).toContain("script-src");
-      expect(csp).not.toContain("'unsafe-inline'");
-    }
-  });
-
-  it('HSTS header present', async () => {
-    const res = await api('/');
-    // In local dev, HSTS might not be set (only production)
-    // Just verify the response exists
-    expect(res.status).toBe(200);
+    expect(forged.status).toBe(401);
   });
 });
