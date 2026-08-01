@@ -1,103 +1,135 @@
-# PrimeProp Nigeria — API Guide
+# PrimeProp Nigeria API Guide
 
-**Base URL:** `https://primeprop-worker.ndupsn.workers.dev`  
-**Auth method:** HttpOnly cookies (browser) or Bearer token (API clients)  
+**Production base URL:** `https://primeprop-worker.ndupsn.workers.dev`  
+**Browser authentication:** Secure, HttpOnly cookies  
+**Non-browser API authentication:** Bearer access token
 
----
-
-## Demo Credentials
-
-| Role | Email | Password |
-|---|---|---|
-| Admin | `admin@primeprop.ng` | `Admin123!` |
-| Agent | Create via signup, then admin approves | — |
-
----
+> Production credentials are never documented or committed. Administrator accounts must be created through the approved bootstrap procedure and their credentials stored in a password manager. The isolated test suite uses `.invalid` email addresses and test-only secrets.
 
 ## Authentication
 
 ### Login
-```
+
+```http
 POST /auth/login
 Content-Type: application/json
 
-{"email": "admin@primeprop.ng", "password": "Admin123!"}
-```
-
-Response:
-```json
 {
-  "success": true,
-  "data": {
-    "token": "eyJ...",
-    "csrf": "067b...",
-    "user": {"id": 1, "email": "admin@primeprop.ng", "name": "Admin", "role": "admin"}
-  }
+  "email": "administrator@example.com",
+  "password": "<password>"
 }
 ```
 
-- **Browser auth:** Cookies (`pp_session`, `pp_refresh`) are set automatically. Use `credentials: 'include'` in fetch calls.
-- **API clients:** Use `Authorization: Bearer <token>` header.
-- **CSRF:** Write operations require `X-CSRF-Token` header (read from `pp_csrf` cookie in browser).
+A successful browser login sets:
 
-### Session Check
-```
+- `pp_session`: short-lived access cookie
+- `pp_refresh`: rotating refresh cookie
+- `pp_csrf`: CSRF token readable by same-origin JavaScript
+
+Browser requests must use `credentials: "include"`. State-changing browser requests must also send the `pp_csrf` value in the `X-CSRF-Token` header.
+
+Non-browser clients may use the access token returned by the login endpoint as an `Authorization: Bearer <token>` header. Refresh tokens must never be sent as bearer access tokens.
+
+### Session check
+
+```http
 GET /auth/session
-# Browser: credentials: 'include'
-# API: Authorization: Bearer <token>
 ```
 
 ### Logout
-```
+
+```http
 POST /auth/logout
-# Requires CSRF token (browser)
+X-CSRF-Token: <csrf-cookie-value>
 ```
 
-### Signup (Public)
-```
+Logout revokes the refresh-token family and clears the authentication cookies.
+
+### Public signup
+
+```http
 POST /auth/signup
-{"email": "agent@example.com", "password": "AgentPass1", "name": "Agent Name"}
-```
-New accounts are `pending` — admin must approve before login.
+Content-Type: application/json
 
-### Register (Admin only)
+{
+  "email": "agent@example.com",
+  "password": "<password>",
+  "name": "Agent Name"
+}
 ```
+
+Public signups are created with `pending` status and cannot sign in until an administrator approves them.
+
+### Administrator-created account
+
+```http
 POST /auth/register
-Authorization: Bearer <admin-token>
-{"email": "new-agent@example.com", "password": "AgentPass1", "name": "Agent Name", "role": "agent"}
+Authorization: Bearer <admin-access-token>
+Content-Type: application/json
+
+{
+  "email": "new-agent@example.com",
+  "password": "<temporary-password>",
+  "name": "Agent Name",
+  "role": "agent"
+}
 ```
 
----
+### Password recovery
 
-## Listings API
+```http
+POST /auth/forgot-password
+Content-Type: application/json
 
-### List listings (paginated)
+{
+  "email": "user@example.com"
+}
 ```
+
+The endpoint always returns the same external response. Reset tokens must be delivered through the configured email provider. They must never be returned by the API, printed to logs, or placed in source control.
+
+```http
+POST /auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "<single-use-token>",
+  "password": "<new-password>"
+}
+```
+
+## Listings
+
+### List listings
+
+```http
 GET /api/listings?page=1&limit=20&type=rent&city=Lagos&sort=newest
 ```
 
-Query params:
-| Param | Values | Default |
+| Parameter | Accepted values | Default |
 |---|---|---|
-| `page` | 1–1000 | 1 |
-| `limit` | 1–100 | 20 |
+| `page` | 1 to 1000 | 1 |
+| `limit` | 1 to 100 | 20 |
 | `type` | `all`, `rent`, `sale`, `land` | `all` |
-| `city` | e.g., `Lagos`, `Abuja` | — |
-| `area` | partial match | — |
-| `minPrice`, `maxPrice` | number | — |
-| `bedrooms` | number | — |
-| `search` | keyword search | — |
+| `city` | Exact city name | None |
+| `area` | Partial area match | None |
+| `minPrice` | Nonnegative integer | None |
+| `maxPrice` | Nonnegative integer | None |
+| `bedrooms` | Nonnegative integer | None |
+| `search` | Search text | None |
 | `sort` | `price-asc`, `price-desc`, `newest`, `featured` | `featured` |
 
-### Get single listing
-```
+### Get one listing
+
+```http
 GET /api/listings/:id
 ```
 
-### Create listing (authenticated)
-```
+### Create a listing
+
+```http
 POST /api/listings
-Authorization: Bearer <token>
+Authorization: Bearer <access-token>
 Content-Type: application/json
 
 {
@@ -105,123 +137,153 @@ Content-Type: application/json
   "type": "rent",
   "price": 1500000,
   "location": "Lekki, Lagos",
-  "description": "Spacious flat...",
+  "description": "Spacious flat",
   "bedrooms": 3,
   "bathrooms": 2,
   "sqft": 1200,
   "amenities": ["Parking", "Security"],
-  "images": ["https://images.unsplash.com/photo-..."],
+  "images": ["/api/images/listings/images/<object-id>.jpg"],
   "availability": "Immediately"
 }
 ```
 
-**Agent restrictions:** Agents cannot set `verified`, `featured`, `badge`, or impersonate other agents. Trust fields are admin-only.
+Agents cannot set `verified`, `featured`, moderation status, trust badges, or another user's identity. Those fields are controlled by authorized staff.
 
-### Update listing
-```
+### Update a listing
+
+```http
 PUT /api/listings/:id
-Authorization: Bearer <token>
-{"title": "Updated Title", "price": 1600000}
+Authorization: Bearer <access-token>
+Content-Type: application/json
+
+{
+  "title": "Updated title",
+  "price": 1600000
+}
 ```
 
-### Delete listing
-```
+### Delete a listing
+
+```http
 DELETE /api/listings/:id
-Authorization: Bearer <token>
+Authorization: Bearer <access-token>
 ```
 
----
+## Statistics
 
-## Stats
-```
+```http
 GET /api/stats
 ```
-Returns: `{total, rent, sale, land, featured}`
 
----
+Returns counts for all, rent, sale, land, and featured listings.
 
-## Districts (Admin only)
+## Districts
 
-```
+Public read:
+
+```http
 GET /api/districts
+```
+
+Administrator writes:
+
+```http
 POST /api/districts
 PUT /api/districts/:id
 DELETE /api/districts/:id
 ```
 
----
+## Cities
 
-## Cities (Admin write)
+Public read:
 
-```
+```http
 GET /api/cities
+```
+
+Administrator writes:
+
+```http
 POST /api/cities
 PUT /api/cities/:id
 DELETE /api/cities/:id
 ```
 
----
+## Uploads
 
-## Image Upload
-
-```
+```http
 POST /api/images/upload
-Authorization: Bearer <token>
+Authorization: Bearer <access-token>
 Content-Type: multipart/form-data
-
-file: <image file>
-# or
-files: <multiple files>
 ```
 
-Limits: 5 files/request, 50 uploads/user/day, 10MB images, 50MB videos/PDFs.  
-Allowed types: JPEG, PNG, GIF, WebP, AVIF, PDF, MP4, WebM, MOV.
+Use `file` for one file or `files` for multiple files.
 
----
+Current application limits:
 
-## Users (Admin only)
+- 5 files per request
+- 50 successful uploads per user per UTC day
+- 10 MB per image
+- 50 MB per PDF or video
 
-```
-GET /auth/users                    # List all
-GET /auth/users/:id                # Get single
-PUT /auth/users/:id                # Update (role, status, name)
-DELETE /auth/users/:id             # Delete (with safeguards)
-```
+The server validates the declared type, extension, and supported file signature before storing a file. Uploaded object ownership is recorded in D1.
 
-Account statuses: `pending` → `active` / `banned`
+Administrator upload inventory:
 
----
-
-## Uploads (Admin only)
-
-```
-GET /api/uploads?page=1&limit=20   # List with ownership
-DELETE /api/uploads/:id            # Delete from R2 + DB
+```http
+GET /api/uploads?page=1&limit=20
+DELETE /api/uploads/:id
 ```
 
----
+## Users
 
-## Rate Limits
+Administrator-only routes:
 
-| Endpoint | Requests/min |
-|---|---|
+```http
+GET /auth/users
+GET /auth/users/:id
+PUT /auth/users/:id
+DELETE /auth/users/:id
+```
+
+Account statuses are `pending`, `active`, and `banned`.
+
+## Rate limits
+
+| Route category | Requests per minute |
+|---|---:|
 | Login | 10 |
 | Signup | 3 |
-| Register | 5 |
+| Administrator registration | 5 |
 | Forgot password | 3 |
 | Reset password | 3 |
 | Upload | 10 |
 | Other writes | 60 |
 | Reads | 300 |
 
----
+Application rate limits supplement, rather than replace, Cloudflare edge controls.
 
-## Security
+## Security controls
 
-- **JWT tokens** with `token_use` claim (access vs refresh)
-- **HttpOnly cookies** for browser sessions
-- **CSRF protection** on all state-changing routes
-- **Strict CSP** with per-request nonces
-- **Password hashing:** bcrypt cost 12, auto-upgrade on login
-- **Pending accounts:** new signups require admin approval
-- **Role-based access:** agents cannot self-verify or impersonate
+- Access and refresh JWTs carry distinct `token_use` claims.
+- Browser sessions use Secure, HttpOnly cookies.
+- Cookie-authenticated writes require an Origin check and matching CSRF token.
+- HTML responses use a per-request CSP nonce.
+- Passwords use bcrypt with cost 12 and are upgraded after a successful login when needed.
+- Public agent signups remain pending until approval.
+- Listing ownership and role checks are enforced by the API.
+- Production secrets belong in Cloudflare Secrets or Secrets Store, never `[vars]` or Git.
+
+## Local verification
+
+From `worker/`:
+
+```bash
+npm ci
+npm run typecheck
+npm run test:static
+npm run test:worker
+npm run test:integration
+```
+
+The integration suite creates an isolated local Wrangler state directory, applies D1 migrations, verifies HTML/CSP behavior, and checks that `/styles.css` and `/js/app.js` are served.

@@ -4,6 +4,11 @@ node_modules/
 worker/.wrangler/
 worker/dist/
 worker/node_modules/
+dist-public/
+.strict-public-source/
+.public-source-backup/
+worker/audit-output/
+audit-output/
 auth copy/
 data/
 tmp/

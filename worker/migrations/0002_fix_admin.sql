@@ -1,4 +1,8 @@
--- REMOVED: Embedded admin password update (PP-SEC-007).
--- This migration previously updated the admin password hash in the users table.
--- Admin credentials must now be bootstrapped separately via wrangler CLI or a one-time setup script.
--- No credential-seeding statements remain in any migration.
+-- RETIRED: Embedded administrator password update (PP-SEC-007).
+--
+-- This migration previously changed a committed administrator password hash.
+-- It must remain in the ordered migration history because existing D1
+-- databases may already record migration 0002 as applied. A harmless SQL
+-- statement keeps fresh databases and migration test runners able to apply the
+-- complete historical sequence without recreating the insecure credential.
+SELECT 1;

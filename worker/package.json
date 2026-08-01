@@ -3,12 +3,21 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "d1:migrate": "wrangler d1 migrations apply primeprop-db",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "build:public": "node ./scripts/run-strict-public-build.mjs && node ./scripts/add-stable-asset-aliases.mjs",
+    "dev": "npm run build:public && node ./scripts/run-wrangler.mjs dev",
+    "deploy": "npm run build:public && node ./scripts/run-wrangler.mjs deploy",
+    "deploy:verified": "npm run deploy && npm run verify:deployment",
+    "d1:migrate": "node ./scripts/run-wrangler.mjs d1 migrations apply primeprop-db",
+    "verify:deployment": "node ./scripts/verify-deployment.mjs",
+    "audit:cloudflare-data": "node ./scripts/audit-cloudflare-data.mjs",
+    "check:operator-scripts": "node --check ./scripts/run-wrangler.mjs && node --check ./scripts/verify-deployment.mjs && node --check ./scripts/audit-cloudflare-data.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:static && npm run test:worker",
+    "test:static": "npm run check:operator-scripts && npm run build:public && vitest run --config vitest.config.mts",
+    "test:worker": "vitest run --config vitest.worker.config.mts",
+    "test:integration": "npm run build:public && vitest run --config vitest.integration.config.mts",
+    "test:all": "npm run typecheck && npm run test && npm run test:integration",
+    "test:watch": "vitest --config vitest.config.mts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
