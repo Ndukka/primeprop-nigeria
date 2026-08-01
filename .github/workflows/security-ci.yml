@@ -1,0 +1,50 @@
+name: Security CI
+
+on:
+  push:
+    branches:
+      - main
+      - security-surgical-fixes-7aec332
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  worker-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: worker
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Typecheck Worker
+        run: npm run typecheck
+
+      - name: Run source security tests
+        run: npm run test:static
+
+      - name: Run Worker runtime security tests
+        run: npm run test:worker
+
+      - name: Run local Wrangler integration tests
+        run: npm run test:integration
