@@ -25,8 +25,14 @@ export default defineConfig({
     }),
   ],
   test: {
-    include: ['tests/runtime-security.test.ts'],
+    include: [
+      'tests/runtime-security.test.ts',
+      'tests/dashboard-runtime.test.ts',
+    ],
     setupFiles: ['./tests/setup-worker.ts'],
     testTimeout: 30000,
+    sequence: {
+      concurrent: false,
+    },
   },
 });
