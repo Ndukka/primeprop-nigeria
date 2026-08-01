@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build:public": "node ./scripts/build-public.mjs && node ./scripts/add-stable-asset-aliases.mjs",
+    "build:public": "node ./scripts/run-strict-public-build.mjs && node ./scripts/add-stable-asset-aliases.mjs",
     "dev": "npm run build:public && wrangler dev",
     "deploy": "npm run build:public && wrangler deploy",
     "d1:migrate": "wrangler d1 migrations apply primeprop-db",
