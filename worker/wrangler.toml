@@ -1,6 +1,6 @@
 #:schema node_modules/wrangler/config-schema.json
 name = "primeprop-worker"
-main = "src/hardened-entry.ts"
+main = "src/production-entry.ts"
 compatibility_date = "2025-03-01"
 compatibility_flags = ["nodejs_compat"]
 
@@ -18,13 +18,16 @@ bucket_name = "primeprop-images"
 # Non-secret environment variables
 [vars]
 ENVIRONMENT = "production"
-# Configure these deployment-specific values before enabling password recovery:
-# PUBLIC_APP_URL = "https://primeprop.ng"
+PUBLIC_APP_URL = "https://primeprop-worker.ndupsn.workers.dev"
+# Configure the verified sender before enabling password recovery:
 # PASSWORD_RESET_FROM = "PrimeProp Nigeria <security@primeprop.ng>"
 #
 # Secrets must be configured through Wrangler or Cloudflare Secrets Store:
 #   npx wrangler secret put JWT_SECRET
 #   npx wrangler secret put RESEND_API_KEY
+#   npx wrangler secret put GOOGLE_CLIENT_ID
+#   npx wrangler secret put GOOGLE_CLIENT_SECRET
+#   npx wrangler secret put GOOGLE_REDIRECT_URI
 # Never place secret values in this file.
 
 # Durable Objects for rate limiting
