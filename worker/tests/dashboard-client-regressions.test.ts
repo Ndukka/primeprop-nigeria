@@ -109,6 +109,8 @@ describe('dashboard database, profile, and session regressions', () => {
     expect(agent).toContain('control.disabled = true');
     expect(agent).toContain('group.hidden = true');
     expect(agent).toContain('Edit Profile');
+    expect(agent).toContain("save.type = 'button'");
+    expect(agent).toContain('if (saveButton?.disabled) return');
   });
 
   it('offers service apartments in admin, agent, and public property selectors', () => {
