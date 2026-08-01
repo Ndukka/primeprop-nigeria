@@ -106,7 +106,25 @@ describe('static asset and CSP delivery', () => {
     expect(await response.text()).toContain('loadDistricts');
   });
 
-  it('serves clean and explicit HTML routes with a matching nonce CSP', async () => {
+  it('serves the CSP compatibility assets without dynamic-code execution', async () => {
+    const [styleResponse, scriptResponse] = await Promise.all([
+      request('/csp-compat.css'),
+      request('/js/csp-events.js'),
+    ]);
+
+    expect(styleResponse.status).toBe(200);
+    expect(styleResponse.headers.get('content-type')).toContain('text/css');
+    expect(await styleResponse.text()).toContain('.pp-image-error');
+
+    expect(scriptResponse.status).toBe(200);
+    expect(scriptResponse.headers.get('content-type')).toMatch(/javascript|text\/plain/);
+    const script = await scriptResponse.text();
+    expect(script).toContain('ALLOWED_FUNCTIONS');
+    expect(script).not.toMatch(/\beval\s*\(/);
+    expect(script).not.toMatch(/new\s+Function\s*\(/);
+  });
+
+  it('serves clean and explicit HTML routes with matching nonce CSP and bridge', async () => {
     for (const path of ['/areas', '/areas.html']) {
       const response = await request(path);
       expect(response.status).toBe(200);
@@ -114,12 +132,20 @@ describe('static asset and CSP delivery', () => {
       const csp = response.headers.get('content-security-policy') || '';
       const html = await response.text();
       const nonceMatch = csp.match(/script-src 'nonce-([^']+)'/);
+      const nonce = nonceMatch?.[1] || '';
 
-      expect(nonceMatch?.[1]).toBeTruthy();
-      expect(html).toContain(`nonce="${nonceMatch?.[1]}"`);
+      expect(nonce).toBeTruthy();
+      expect(html).toContain(`nonce="${nonce}"`);
+      expect(html).toContain('<link rel="stylesheet" href="/csp-compat.css">');
+      expect(html).toContain(`<script nonce="${nonce}" src="/js/csp-events.js" defer></script>`);
+      expect(html.match(/\/csp-compat\.css/g)).toHaveLength(1);
+      expect(html.match(/\/js\/csp-events\.js/g)).toHaveLength(1);
       expect(csp).toContain("style-src-attr 'unsafe-inline'");
+      expect(csp).toContain("script-src-attr 'none'");
       expect(csp).toContain('https://cdnjs.cloudflare.com');
       expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+      expect(response.headers.get('cache-control')).toContain('no-store');
+      expect(response.headers.get('etag')).toBeNull();
     }
   });
 });
@@ -160,6 +186,19 @@ describe('API and routing smoke tests', () => {
   it('rejects encoded image path traversal', async () => {
     const response = await request('/api/images/%2e%2e/%2e%2e/worker/wrangler.toml');
     expect(response.status).toBe(404);
+  });
+
+  it('normalizes trailing slashes on authentication routes', async () => {
+    const response = await request('/auth/forgot-password/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'nobody@example.invalid' }),
+    });
+
+    // Password recovery is fail-closed until the email provider is configured.
+    expect(response.status).toBe(503);
+    const body = await response.json() as { message: string };
+    expect(body.message).toContain('temporarily unavailable');
   });
 });
 
