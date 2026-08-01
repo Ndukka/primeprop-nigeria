@@ -90,10 +90,6 @@ const SOURCE_PATCHES = [
         'l.bedrooms >= 5',
         'l.bedrooms >= parseInt(activeBedrooms)',
       ],
-      [
-        "listing.agent?.phone || '2348000000000'",
-        "listing.agent?.phone || ''",
-      ],
     ],
     expandCssText: false,
   },
