@@ -1,12 +1,30 @@
 import { spawnSync } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const workerDir = path.resolve(scriptDir, '..');
 const repositoryDir = path.resolve(workerDir, '..');
+const publicDir = path.join(repositoryDir, 'public');
 const strictBuildPath = path.join(scriptDir, 'run-strict-public-build.mjs');
+
+const KNOWN_PAGE_FILENAMES = [
+  'index.html',
+  'properties.html',
+  'properties-rent.html',
+  'properties-sale.html',
+  'properties-land.html',
+  'areas.html',
+  'listing-detail.html',
+  'listing-detail-1.html',
+  'listing-detail-2.html',
+  'listing-detail-3.html',
+  'login.html',
+  'admin.html',
+  'agent.html',
+  'reset-password.html',
+];
 
 const SOURCE_PATCHES = [
   {
@@ -61,10 +79,46 @@ const SOURCE_PATCHES = [
     ],
     expandCssText: true,
   },
+  {
+    relativePath: 'public/js/strict-runtime.js',
+    replacements: [
+      [
+        [
+          '    showPageSkeleton();',
+          '    requestAnimationFrame(() => {',
+          '      window.location.assign(url.href);',
+          '    });',
+        ].join('\n'),
+        '    window.location.assign(url.href);',
+      ],
+    ],
+    expandCssText: false,
+  },
 ];
+
+const PATCHES_BY_PATH = new Map(SOURCE_PATCHES.map(patch => [patch.relativePath, patch]));
 
 function toCamelCase(property) {
   return property.trim().replace(/-([a-z])/g, (_match, character) => character.toUpperCase());
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeQuotedRootAbsolutePageReferences(source) {
+  let prepared = source;
+  let count = 0;
+
+  for (const filename of KNOWN_PAGE_FILENAMES) {
+    const pattern = new RegExp(`(["'\\x60])/${escapeRegExp(filename)}(?=([?#][^"'\\x60\\s<>]*)?\\1)`, 'g');
+    prepared = prepared.replace(pattern, (_match, quote) => {
+      count += 1;
+      return `${quote}${filename}`;
+    });
+  }
+
+  return { prepared, count };
 }
 
 function expandStaticCssTextAssignments(source, relativePath) {
@@ -124,30 +178,69 @@ function applyRequiredReplacements(source, relativePath, replacements) {
   return prepared;
 }
 
+async function walkTextFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = [];
+
+  for (const entry of entries) {
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await walkTextFiles(absolute));
+    } else if (/\.(?:html|js)$/i.test(entry.name)) {
+      files.push(absolute);
+    }
+  }
+
+  return files.sort();
+}
+
 const originals = new Map();
+const appliedPatches = new Set();
 let result;
 let expandedCssTextAssignments = 0;
+let normalizedPageReferences = 0;
 
 try {
-  for (const patch of SOURCE_PATCHES) {
-    const absolutePath = path.join(repositoryDir, patch.relativePath);
-    const original = await readFile(absolutePath, 'utf8');
-    let prepared = applyRequiredReplacements(original, patch.relativePath, patch.replacements);
+  const sourceFiles = await walkTextFiles(publicDir);
 
-    if (patch.expandCssText) {
-      const expansion = expandStaticCssTextAssignments(prepared, patch.relativePath);
-      prepared = expansion.prepared;
-      expandedCssTextAssignments += expansion.count;
+  for (const absolutePath of sourceFiles) {
+    const relativePath = path.relative(repositoryDir, absolutePath).split(path.sep).join('/');
+    const patch = PATCHES_BY_PATH.get(relativePath);
+    const original = await readFile(absolutePath, 'utf8');
+    let prepared = original;
+
+    if (patch) {
+      prepared = applyRequiredReplacements(prepared, relativePath, patch.replacements);
+      appliedPatches.add(relativePath);
+
+      if (patch.expandCssText) {
+        const expansion = expandStaticCssTextAssignments(prepared, relativePath);
+        prepared = expansion.prepared;
+        expandedCssTextAssignments += expansion.count;
+      }
     }
 
+    const pageReferenceNormalization = normalizeQuotedRootAbsolutePageReferences(prepared);
+    prepared = pageReferenceNormalization.prepared;
+    normalizedPageReferences += pageReferenceNormalization.count;
+
+    if (prepared === original) continue;
     originals.set(absolutePath, original);
     await writeFile(absolutePath, prepared, 'utf8');
   }
 
+  for (const patch of SOURCE_PATCHES) {
+    if (!appliedPatches.has(patch.relativePath)) {
+      throw new Error(`${patch.relativePath}: configured source patch was not applied.`);
+    }
+  }
+
   console.log(JSON.stringify({
     event: 'strict_source_normalization_completed',
-    files: SOURCE_PATCHES.length,
+    files: originals.size,
     expandedCssTextAssignments,
+    normalizedPageReferences,
+    navigationOverlayDisabled: true,
   }));
 
   result = spawnSync(process.execPath, [strictBuildPath], {
