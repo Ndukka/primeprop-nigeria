@@ -72,10 +72,15 @@ function convertEventPropertyAssignments(source) {
 }
 
 function replaceLegacySpinnerMarkup(source) {
-  return source.replace(
-    /<div\b[^>]*\bclass=(['"])[^'"]*\bspinner\b[^'"]*\1[^>]*>\s*<\/div>/gi,
-    SKELETON_MARKUP,
-  );
+  return source
+    .replace(
+      /<div\b[^>]*\bclass=(['"])[^'"]*\bspinner\b[^'"]*\1[^>]*>\s*<\/div>/gi,
+      SKELETON_MARKUP,
+    )
+    .replace(
+      /<i\b[^>]*\bclass=(['"])[^'"]*\bfa-spinner\b[^'"]*\1[^>]*>\s*<\/i>/gi,
+      SKELETON_MARKUP,
+    );
 }
 
 function removeLegacySpinnerCss(source) {
