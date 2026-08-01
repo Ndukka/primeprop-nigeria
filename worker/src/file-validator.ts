@@ -210,6 +210,16 @@ export const MAX_RISKY_SIZE  = 50 * 1024 * 1024;   // 50 MB
 export const MAX_FILES_PER_REQUEST = 5;
 export const MAX_UPLOADS_PER_USER_PER_DAY = 50;
 
+// ── Cache-Control header based on file extension ─────────
+// PP-SEC-032: Images are immutable (UUID keys never change content).
+// PDFs/videos use a shorter cache because they may be moderated.
+export function getCacheControl(extension: string): string {
+  if (ATTACHMENT_EXTENSIONS.has(extension.toLowerCase())) {
+    return 'public, max-age=86400'; // 24h for PDFs/videos
+  }
+  return 'public, max-age=31536000, immutable'; // 1 year for images
+}
+
 // ── R2 folder prefix based on MIME type ──────────────────
 export function getR2FolderPrefix(mimeType: string): string {
   if (mimeType.startsWith('image/'))  return 'images';

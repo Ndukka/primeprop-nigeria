@@ -420,17 +420,19 @@ authRoutes.post('/signup', async (c) => {
     return c.json({ success: false, message: pwdError }, 400);
   }
 
-  const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
-  if (existing) {
-    return c.json({ success: false, message: 'An account with this email already exists' }, 409);
-  }
-
+  // PP-SEC-034: Always hash the password first so timing is identical
+  // whether the email exists or not — prevents user enumeration via timing.
   const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-  // PP-SEC-013: Public signups are created as 'pending' — must be approved by admin before publishing
-  await c.env.DB.prepare(
-    'INSERT INTO users (email, password_hash, name, role, account_status) VALUES (?,?,?,?,?)'
+
+  // PP-SEC-034: INSERT OR IGNORE prevents duplicate emails without leaking
+  // whether the email already existed. If 0 rows changed, a duplicate was silently ignored.
+  const result = await c.env.DB.prepare(
+    'INSERT OR IGNORE INTO users (email, password_hash, name, role, account_status) VALUES (?,?,?,?,?)'
   ).bind(email, hash, name, role, 'pending').run();
 
+  // PP-SEC-034: Return the SAME success response regardless of whether the
+  // email was new or already existed. The password hash was already computed
+  // above, so timing is indistinguishable.
   return c.json({ success: true, data: { email, name, role } }, 201);
 });
 
@@ -464,6 +466,15 @@ authRoutes.post('/login', async (c) => {
   }
   if (user.account_status === 'pending') {
     return c.json({ success: false, message: 'Account pending approval. Contact support.' }, 403);
+  }
+
+  // PP-SEC-035: Rehash password if the stored hash uses an outdated cost factor.
+  // bcrypt cost 10 is too weak for modern hardware; silently upgrade to cost 12.
+  const CURRENT_BCRYPT_ROUNDS = 12;
+  if (user.password_hash && !user.password_hash.startsWith('$2a$' + CURRENT_BCRYPT_ROUNDS + '$')) {
+    const upgradedHash = await bcrypt.hash(password, CURRENT_BCRYPT_ROUNDS);
+    await c.env.DB.prepare('UPDATE users SET password_hash = ?, updated_at = datetime(\'now\') WHERE id = ?')
+      .bind(upgradedHash, user.id).run();
   }
 
   const accessToken = await createToken(
@@ -529,6 +540,19 @@ authRoutes.get('/users', requireAuth, requireRole('admin'), async (c) => {
     'SELECT id, email, name, role, avatar_url, phone, account_status, last_login_at, login_count, created_at FROM users ORDER BY id ASC'
   ).all();
   return c.json({ success: true, data: results });
+});
+
+// GET /auth/users/:id — get single user (admin only)
+authRoutes.get('/users/:id', requireAuth, requireRole('admin'), async (c) => {
+  const id = parseInt(c.req.param('id'));
+  if (!id || id <= 0) return c.json({ success: false, message: 'Invalid user ID' }, 400);
+
+  const user = await c.env.DB.prepare(
+    'SELECT id, email, name, role, avatar_url, phone, account_status, last_login_at, login_count, created_at FROM users WHERE id = ?'
+  ).bind(id).first();
+
+  if (!user) return c.json({ success: false, message: 'User not found' }, 404);
+  return c.json({ success: true, data: user });
 });
 
 // PUT /auth/users/:id — update user (admin: change role, ban/unban)
@@ -828,9 +852,24 @@ authRoutes.put('/profile', csrfProtection, requireAuth, async (c) => {
 
   const updates: Record<string, any> = {};
   if (body.name !== undefined) updates.name = sanitizeString(body.name, 200);
+  // PP-SEC-033: Email changes require current password verification.
+  // This prevents an attacker who steals a session cookie from changing the
+  // account email to take over the account permanently.
   if (body.email !== undefined) {
     const newEmail = sanitizeString(body.email, 254).toLowerCase();
     if (!isValidEmail(newEmail)) return c.json({ success: false, message: 'Invalid email format' }, 400);
+
+    // PP-SEC-033: Require current password to change email
+    if (!body.current_password) {
+      return c.json({ success: false, message: 'Current password is required to change email' }, 400);
+    }
+    const dbUser = await c.env.DB.prepare('SELECT password_hash FROM users WHERE id = ?').bind(user.id).first() as any;
+    if (!dbUser?.password_hash) {
+      return c.json({ success: false, message: 'Cannot change email for OAuth-only accounts' }, 400);
+    }
+    const valid = await bcrypt.compare(body.current_password, dbUser.password_hash);
+    if (!valid) return c.json({ success: false, message: 'Current password is incorrect' }, 400);
+
     // Check email not taken
     const existing = await c.env.DB.prepare('SELECT id FROM users WHERE email = ? AND id != ?').bind(newEmail, user.id).first();
     if (existing) return c.json({ success: false, message: 'Email already in use' }, 409);
@@ -857,14 +896,32 @@ authRoutes.put('/profile', csrfProtection, requireAuth, async (c) => {
   await c.env.DB.prepare(`UPDATE users SET ${setClauses.join(', ')}, updated_at = datetime('now') WHERE id = ?`)
     .bind(...Object.values(updates), user.id).run();
 
-  // If email changed, update the JWT token in the response
-  const newUser = await c.env.DB.prepare('SELECT id, email, name, role FROM users WHERE id = ?').bind(user.id).first() as any;
-  const newToken = await createToken(
-    { id: newUser.id, email: newUser.email, role: newUser.role, name: newUser.name },
-    c.env.JWT_SECRET
-  );
+  // PP-SEC-033: If email changed, revoke all other sessions to force them
+  // to re-authenticate with the new email. Then re-issue a fresh token for
+  // the current session so the user isn't logged out.
+  if (updates.email) {
+    await revokeAllUserSessions(c.env.DB, user.id);
+  }
 
-  return c.json({ success: true, message: 'Profile updated', data: { token: newToken, user: newUser } });
+  const newUser = await c.env.DB.prepare('SELECT id, email, name, role FROM users WHERE id = ?').bind(user.id).first() as any;
+  const newAccess = await createToken(
+    { id: newUser.id, email: newUser.email, role: newUser.role, name: newUser.name },
+    c.env.JWT_SECRET, 'access', ACCESS_EXPIRY
+  );
+  const newRefresh = await createToken(
+    { id: newUser.id, email: newUser.email, role: newUser.role, name: newUser.name },
+    c.env.JWT_SECRET, 'refresh', REFRESH_EXPIRY
+  );
+  const csrf = generateCSRF();
+
+  // PP-SEC-033: Create a new session for the current user after revoking old ones
+  const refreshPayload = await verifyToken(newRefresh, c.env.JWT_SECRET);
+  const ip = c.req.header('CF-Connecting-IP') || '';
+  await createSession(c.env.DB, newUser.id, newRefresh, refreshPayload?.jti || '', ip);
+
+  setAuthCookies(c, newAccess, newRefresh, csrf);
+
+  return c.json({ success: true, message: 'Profile updated', data: { token: newAccess, csrf, user: newUser } });
 });
 
 // ── Forgot Password ────────────────────────────────────────

@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "d1:migrate": "wrangler d1 migrations apply primeprop-db"
+    "d1:migrate": "wrangler d1 migrations apply primeprop-db",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -13,8 +16,11 @@
     "jose": "^5.9.0"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.20.1",
     "@cloudflare/workers-types": "^4.20250303.0",
     "@types/bcryptjs": "^2.4.6",
-    "typescript": "^7.0.2"
+    "miniflare": "^5.20260730.0-alpha",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   }
 }

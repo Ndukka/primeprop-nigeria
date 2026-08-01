@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { authRoutes, requireAuth, requireRole, csrfProtection } from './auth';
-import { safeJsonParse, isYouTube, rowToListing } from './utils';
+import { safeJsonParse, isYouTube, rowToListing, sanitizePositiveInt } from './utils';
 import { RateLimiter } from './rate-limiter';
 import {
   detectFileType,
@@ -9,6 +9,7 @@ import {
   getSafeContentType,
   requiresAttachmentDisposition,
   validateImageHeaders,
+  getCacheControl,
   ALLOWED_CONTENT_TYPES,
   MAX_IMAGE_SIZE,
   MAX_RISKY_SIZE,
@@ -17,7 +18,7 @@ import {
   getR2FolderPrefix,
   isRiskyType,
 } from './file-validator';
-import type { D1Database, R2Bucket, Fetcher } from '@cloudflare/workers-types';
+import type { D1Database, R2Bucket, Fetcher, DurableObjectNamespace } from '@cloudflare/workers-types';
 import {
   generateNonce,
   injectNonces,
@@ -26,6 +27,7 @@ import {
   setApiSecurityHeaders,
   isHtmlPath,
 } from './security-headers';
+import { createRequestLogger } from './logger';
 
 type Bindings = {
   DB: D1Database;
@@ -211,12 +213,12 @@ app.get('/api/listings', async (c) => {
   // PP-SEC-026: Build WHERE clause separately — unordered COUNT, ordered data query
   const whereClause = sql.replace('SELECT * FROM listings WHERE 1=1', '');
   
-  // PP-SEC-025: Mandatory pagination — cap at 100 items max
+  // PP-SEC-025 / PP-SEC-024: Mandatory pagination — cap at 100 items max, use sanitizePositiveInt
   const countResult = await db.prepare(`SELECT COUNT(*) as c FROM listings WHERE 1=1 ${whereClause}`).bind(...params).first<{c:number}>();
   const totalCount = countResult?.c || 0;
 
-  const p = Math.max(1, Math.min(1000, Math.floor(sanitizeNumber(q.page, 1))));
-  const l = Math.max(1, Math.min(100, Math.floor(sanitizeNumber(q.limit, 20))));  // default 20, max 100
+  const p = sanitizePositiveInt(q.page, 1, 1, 1000);
+  const l = sanitizePositiveInt(q.limit, 20, 1, 100);
   const totalPages = Math.ceil(totalCount / l) || 1;
   const offset = (p - 1) * l;
 
@@ -241,48 +243,83 @@ app.post('/api/listings', requireAuth, async (c) => {
   const body = await c.req.json().catch(() => null);
   if (!body) return c.json({ success: false, message: 'Invalid JSON' }, 400);
 
-  const title = sanitizeString(body.title, 200);
-  const type = sanitizeEnum(body.type, VALID_TYPES, 'rent');
-  const propertyType = sanitizeEnum(body.propertyType || body.property_type, VALID_PROPERTY_TYPES, 'apartment');
-  const price = sanitizeNumber(body.price);
-  const priceUnit = sanitizeString(body.priceUnit || body.price_unit, 50) || (type === 'rent' ? '/ year' : '');
-  const location = sanitizeString(body.location, 300);
+  // PP-SEC-023: Normalize all camelCase fields to snake_case before processing.
+  // This ensures a single canonical field name regardless of what the client sends.
+  const normalized: Record<string, any> = { ...body };
+
+  const KNOWN_FIELDS = new Set([
+    'title', 'type', 'property_type', 'propertyType', 'price', 'price_unit', 'priceUnit',
+    'location', 'area', 'city', 'bedrooms', 'bathrooms', 'sqft', 'parking',
+    'description', 'amenities', 'images', 'availability', 'featured', 'verified', 'badge',
+    'agent_name', 'agent_role', 'agent_phone', 'agent_avatar',
+    'agent', 'moveInCosts', 'annual_rent', 'agency_fee', 'security_deposit', 'service_charge',
+  ]);
+
+  // Warn about unknown/extra fields — they are stripped, not rejected
+  const extraFields = Object.keys(body).filter(k => !KNOWN_FIELDS.has(k));
+  if (extraFields.length > 0) {
+    console.warn(`[PP-SEC-023] Unknown fields in POST /api/listings stripped: ${extraFields.join(', ')}`);
+  }
+
+  // Normalize camelCase -> snake_case for known dual-named fields
+  if (body.propertyType !== undefined && body.property_type === undefined) normalized.property_type = body.propertyType;
+  if (body.priceUnit !== undefined && body.price_unit === undefined) normalized.price_unit = body.priceUnit;
+  if (body.moveInCosts) {
+    if (body.moveInCosts.annualRent !== undefined && normalized.annual_rent === undefined) normalized.annual_rent = body.moveInCosts.annualRent;
+    if (body.moveInCosts.agencyFee !== undefined && normalized.agency_fee === undefined) normalized.agency_fee = body.moveInCosts.agencyFee;
+    if (body.moveInCosts.securityDeposit !== undefined && normalized.security_deposit === undefined) normalized.security_deposit = body.moveInCosts.securityDeposit;
+    if (body.moveInCosts.serviceCharge !== undefined && normalized.service_charge === undefined) normalized.service_charge = body.moveInCosts.serviceCharge;
+  }
+
+  const title = sanitizeString(normalized.title, 200);
+  const type = sanitizeEnum(normalized.type, VALID_TYPES, 'rent');
+  const propertyType = sanitizeEnum(normalized.property_type, VALID_PROPERTY_TYPES, 'apartment');
+  // PP-SEC-024: Sanitize price as positive int (Naira, no fractions)
+  const price = sanitizePositiveInt(normalized.price, 0, 0, 100000000000);
+  const priceUnit = sanitizeString(normalized.price_unit, 50) || (type === 'rent' ? '/ year' : '');
+  const location = sanitizeString(normalized.location, 300);
 
   if (!title || !price || !location) {
     return c.json({ success: false, message: 'title, price, and location are required' }, 400);
   }
 
-  const amenities = Array.isArray(body.amenities) ? body.amenities.slice(0, MAX_ARRAY).map((a: any) => sanitizeString(a, 200)) : [];
-  const images = Array.isArray(body.images) ? body.images.slice(0, MAX_ARRAY).map((i: any) => sanitizeString(i, 1000)) : [];
+  const amenities = Array.isArray(normalized.amenities) ? normalized.amenities.slice(0, MAX_ARRAY).map((a: any) => sanitizeString(a, 200)) : [];
+  const images = Array.isArray(normalized.images) ? normalized.images.slice(0, MAX_ARRAY).map((i: any) => sanitizeString(i, 1000)) : [];
 
   // PP-SEC-008: Agents cannot self-verify, self-feature, or impersonate other agents.
   // Admins can set trust/moderator fields; agents always get defaults derived from their user record.
   const isAdmin = user.role === 'admin';
-  const featured = isAdmin ? (body.featured ? 1 : 0) : 0;
-  const verified = isAdmin ? (body.verified ? 1 : 0) : 0;
-  const badge = isAdmin ? sanitizeString(body.badge, 50) : '';
-  const agentName = isAdmin ? sanitizeString(body.agent_name || body.agent?.name, 200) || user.name : user.name;
-  const agentRole = isAdmin ? sanitizeString(body.agent_role || body.agent?.role, 200) : user.role;
-  const agentPhone = isAdmin ? sanitizeString(body.agent_phone || body.agent?.phone, 50) : '';
-  const agentAvatar = isAdmin ? sanitizeString(body.agent_avatar || body.agent?.avatar, 1000) : '';
+  const featured = isAdmin ? (normalized.featured ? 1 : 0) : 0;
+  const verified = isAdmin ? (normalized.verified ? 1 : 0) : 0;
+  const badge = isAdmin ? sanitizeString(normalized.badge, 50) : '';
+  const agentName = isAdmin ? sanitizeString(normalized.agent_name || normalized.agent?.name, 200) || user.name : user.name;
+  const agentRole = isAdmin ? sanitizeString(normalized.agent_role || normalized.agent?.role, 200) : user.role;
+  const agentPhone = isAdmin ? sanitizeString(normalized.agent_phone || normalized.agent?.phone, 50) : '';
+  const agentAvatar = isAdmin ? sanitizeString(normalized.agent_avatar || normalized.agent?.avatar, 1000) : '';
+
+  // PP-SEC-024: sanitizePositiveInt with domain-appropriate ranges
+  const bedrooms = sanitizePositiveInt(normalized.bedrooms, 0, 0, 50);
+  const bathrooms = sanitizePositiveInt(normalized.bathrooms, 0, 0, 50);
+  const sqft = sanitizePositiveInt(normalized.sqft, 0, 0, 1000000);
+  const parking = sanitizePositiveInt(normalized.parking, 0, 0, 100);
+  const annualRent = normalized.annual_rent !== undefined ? sanitizePositiveInt(normalized.annual_rent, 0, 0, 100000000000) : null;
+  const agencyFee = normalized.agency_fee !== undefined ? sanitizePositiveInt(normalized.agency_fee, 0, 0, 100000000000) : null;
+  const securityDeposit = normalized.security_deposit !== undefined ? sanitizePositiveInt(normalized.security_deposit, 0, 0, 100000000000) : null;
+  const serviceCharge = normalized.service_charge !== undefined ? sanitizePositiveInt(normalized.service_charge, 0, 0, 100000000000) : null;
 
   const result = await c.env.DB.prepare(`
     INSERT INTO listings (title, type, property_type, price, price_unit, location, area, city, bedrooms, bathrooms, sqft, parking, description, amenities, images, availability, featured, verified, badge, agent_name, agent_role, agent_phone, agent_avatar, annual_rent, agency_fee, security_deposit, service_charge, created_by)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).bind(
     title, type, propertyType, price, priceUnit, location,
-    sanitizeString(body.area, 100), sanitizeString(body.city, 100),
-    sanitizeNumber(body.bedrooms), sanitizeNumber(body.bathrooms),
-    sanitizeNumber(body.sqft), sanitizeNumber(body.parking),
-    sanitizeString(body.description, 5000),
+    sanitizeString(normalized.area, 100), sanitizeString(normalized.city, 100),
+    bedrooms, bathrooms, sqft, parking,
+    sanitizeString(normalized.description, 5000),
     JSON.stringify(amenities), JSON.stringify(images),
-    sanitizeString(body.availability, 100) || 'Immediately',
+    sanitizeString(normalized.availability, 100) || 'Immediately',
     featured, verified, badge,
     agentName, agentRole, agentPhone, agentAvatar,
-    sanitizeNumber(body.annual_rent || body.moveInCosts?.annualRent) || null,
-    sanitizeNumber(body.agency_fee || body.moveInCosts?.agencyFee) || null,
-    sanitizeNumber(body.security_deposit || body.moveInCosts?.securityDeposit) || null,
-    sanitizeNumber(body.service_charge || body.moveInCosts?.serviceCharge) || null,
+    annualRent, agencyFee, securityDeposit, serviceCharge,
     user.id
   ).run();
 
@@ -313,13 +350,17 @@ app.put('/api/listings/:id', requireAuth, async (c) => {
 
   // Fields ALL users can update (factual property data)
   const commonStringFields: [string, number][] = [
-    ['title', 200], ['type', 50], ['property_type', 100],
-    ['price_unit', 50], ['location', 300], ['area', 100], ['city', 100],
+    ['title', 200], ['price_unit', 50], ['location', 300], ['area', 100], ['city', 100],
     ['description', 5000], ['availability', 100],
   ];
   for (const [f, max] of commonStringFields) {
     if (body[f] !== undefined) updates[f] = sanitizeString(body[f], max);
   }
+
+  // PP-SEC-024: Enforce VALID_TYPES / VALID_PROPERTY_TYPES enums on update.
+  // Previously these passed through as arbitrary strings.
+  if (body.type !== undefined) updates.type = sanitizeEnum(body.type, VALID_TYPES, existing.type);
+  if (body.property_type !== undefined) updates.property_type = sanitizeEnum(body.property_type, VALID_PROPERTY_TYPES, existing.property_type);
 
   // Admin-only fields: trust badges, moderation status, agent identity overrides
   if (isAdmin) {
@@ -334,9 +375,20 @@ app.put('/api/listings/:id', requireAuth, async (c) => {
     if (body.verified !== undefined) updates.verified = body.verified ? 1 : 0;
   }
 
-  const numFields = ['price', 'bedrooms', 'bathrooms', 'sqft', 'parking', 'annual_rent', 'agency_fee', 'security_deposit', 'service_charge'];
-  for (const f of numFields) {
-    if (body[f] !== undefined) updates[f] = sanitizeNumber(body[f]);
+  // PP-SEC-024: Use sanitizePositiveInt with domain-appropriate ranges for all numeric fields
+  const numFieldRanges: Record<string, [number, number]> = {
+    price: [0, 100000000000],
+    bedrooms: [0, 50],
+    bathrooms: [0, 50],
+    sqft: [0, 1000000],
+    parking: [0, 100],
+    annual_rent: [0, 100000000000],
+    agency_fee: [0, 100000000000],
+    security_deposit: [0, 100000000000],
+    service_charge: [0, 100000000000],
+  };
+  for (const [f, [min, max]] of Object.entries(numFieldRanges)) {
+    if (body[f] !== undefined) updates[f] = sanitizePositiveInt(body[f], 0, min, max);
   }
   if (body.amenities !== undefined) updates.amenities = JSON.stringify(
     (Array.isArray(body.amenities) ? body.amenities : []).slice(0, MAX_ARRAY).map((a: any) => sanitizeString(a, 200))
@@ -531,11 +583,25 @@ app.post('/api/images/upload', requireAuth, async (c) => {
     const folder = getR2FolderPrefix(file.type);
     const uuid = crypto.randomUUID();
     const ext = fnameResult.extension!;
-    const key = `listings/${folder}/${uuid}.${ext}`;
+    let key = `listings/${folder}/${uuid}.${ext}`;
+
+    // PP-SEC-032: Never overwrite existing objects.
+    // Collision with crypto.randomUUID() is astronomically unlikely,
+    // but guard against it anyway by appending a suffix.
+    let suffix = '';
+    while (await c.env.IMAGES.head(key)) {
+      suffix = `-${crypto.randomUUID().slice(0, 8)}`;
+      key = `listings/${folder}/${uuid}${suffix}.${ext}`;
+    }
 
     await c.env.IMAGES.put(key, file.stream() as any, {
       httpMetadata: { contentType: file.type }
     });
+
+    // PP-SEC-030: Track ownership in DB for auditing and cleanup
+    await db.prepare(
+      'INSERT INTO upload_objects (user_id, object_key, original_name, content_type, size_bytes, folder) VALUES (?,?,?,?,?,?)'
+    ).bind(user.id, key, file.name, file.type, file.size, folder).run();
 
     results.push({ key, url: `/api/images/${key}`, type: file.type, size: file.size, name: file.name });
     successfulUploads++;
@@ -557,10 +623,13 @@ app.post('/api/images/upload', requireAuth, async (c) => {
 
 // ── File Retrieval ──────────────────────────────────────
 // PP-SEC-015: Safe Content-Type whitelist (never trust user-supplied metadata).
+// PP-SEC-031: Wildcard route to capture nested keys (e.g. listings/images/uuid.jpg).
+// PP-SEC-032: Preserve R2 ETag, support If-None-Match, differentiated cache.
 // Force Content-Disposition: attachment for PDFs/videos to prevent
 // inline script execution and drive-by-downloads.
-app.get('/api/images/:key', async (c) => {
-  const key = c.req.param('key');
+app.get('/api/images/*', async (c) => {
+  // PP-SEC-031: Extract full key from path (handles nested keys with slashes)
+  const key = c.req.path.replace('/api/images/', '');
 
   // Prevent directory traversal
   if (key.includes('..') || key.startsWith('/')) return c.notFound();
@@ -578,9 +647,22 @@ app.get('/api/images/:key', async (c) => {
     return c.json({ success: false, message: 'Unsupported file type' }, 415);
   }
 
+  // PP-SEC-032: Support If-None-Match conditional requests using R2's ETag
+  const ifNoneMatch = c.req.header('If-None-Match');
+  if (ifNoneMatch && object.httpEtag && ifNoneMatch === object.httpEtag) {
+    return new Response(null, { status: 304 });
+  }
+
   const headers = new Headers();
   headers.set('Content-Type', safeContentType);
-  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+
+  // PP-SEC-032: Differentiated cache — immutable for images, short for PDFs/videos
+  headers.set('Cache-Control', getCacheControl(ext));
+
+  // PP-SEC-032: Preserve R2's ETag for conditional requests
+  if (object.httpEtag) {
+    headers.set('ETag', object.httpEtag);
+  }
 
   // Force download for PDFs and videos (prevents inline script execution)
   if (requiresAttachmentDisposition(ext)) {
@@ -592,6 +674,86 @@ app.get('/api/images/:key', async (c) => {
   headers.set('X-Content-Type-Options', 'nosniff');
 
   return new Response(object.body as any, { headers: headers as any });
+});
+
+// ── Upload Ownership Tracking (admin only) ──────────────
+// PP-SEC-030: List and delete R2 uploads with ownership metadata.
+
+// GET /api/uploads — list recent uploads with ownership info
+app.get('/api/uploads', requireAuth, requireRole('admin'), async (c) => {
+  const db = c.env.DB;
+  const q = c.req.query();
+  const p = Math.max(1, Math.floor(sanitizeNumber(q.page, 1)));
+  const l = Math.max(1, Math.min(100, Math.floor(sanitizeNumber(q.limit, 20))));
+  const offset = (p - 1) * l;
+
+  const whereClauses: string[] = [];
+  const params: any[] = [];
+
+  if (q.user_id) {
+    whereClauses.push('uo.user_id = ?');
+    params.push(sanitizeNumber(q.user_id));
+  }
+  if (q.folder) {
+    whereClauses.push('uo.folder = ?');
+    params.push(sanitizeString(q.folder, 50));
+  }
+  if (q.content_type) {
+    whereClauses.push('uo.content_type = ?');
+    params.push(sanitizeString(q.content_type, 100));
+  }
+
+  const whereSQL = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
+
+  const countResult = await db.prepare(
+    `SELECT COUNT(*) as c FROM upload_objects uo ${whereSQL}`
+  ).bind(...params).first<{c:number}>();
+  const total = countResult?.c || 0;
+
+  const { results } = await db.prepare(
+    `SELECT uo.*, u.email as user_email, u.name as user_name
+     FROM upload_objects uo
+     LEFT JOIN users u ON uo.user_id = u.id
+     ${whereSQL}
+     ORDER BY uo.id DESC
+     LIMIT ${l} OFFSET ${offset}`
+  ).bind(...params).all();
+
+  const totalPages = Math.ceil(total / l) || 1;
+
+  return c.json({
+    success: true,
+    count: total,
+    page: p,
+    limit: l,
+    totalPages,
+    hasNext: p < totalPages,
+    hasPrev: p > 1,
+    data: results,
+  });
+});
+
+// DELETE /api/uploads/:id — remove an R2 object and its DB record (admin only)
+app.delete('/api/uploads/:id', requireAuth, requireRole('admin'), async (c) => {
+  const id = sanitizeNumber(c.req.param('id'));
+  if (id <= 0) return c.json({ success: false, message: 'Invalid ID' }, 400);
+
+  const record = await c.env.DB.prepare(
+    'SELECT id, object_key FROM upload_objects WHERE id = ?'
+  ).bind(id).first<{ id: number; object_key: string }>();
+
+  if (!record) {
+    return c.json({ success: false, message: 'Upload record not found' }, 404);
+  }
+
+  // Delete from R2 first, then from DB
+  await c.env.IMAGES.delete(record.object_key);
+  await c.env.DB.prepare('DELETE FROM upload_objects WHERE id = ?').bind(id).run();
+
+  return c.json({
+    success: true,
+    message: `Upload ${id} (${record.object_key}) deleted`,
+  });
 });
 
 // ── Cities CRUD ───────────────────────────────────────────

@@ -1,5 +1,17 @@
 // Shared helpers used by both index.ts and auth.ts
 
+// PP-SEC-024: Sanitizes a numeric value to a positive integer clamped within [min, max].
+// Returns fallback for non-finite/NaN, floors fractional values, and clamps to range.
+export function sanitizePositiveInt(v: unknown, fallback = 0, min = 0, max = Number.MAX_SAFE_INTEGER): number {
+  if (v === undefined || v === null) return fallback;
+  const n = Number(v);
+  if (!isFinite(n)) return fallback;
+  const floored = Math.floor(n);
+  if (floored < min) return min;
+  if (floored > max) return max;
+  return floored;
+}
+
 export function safeJsonParse(val: any, fallback: any) {
   if (!val) return fallback;
   try { return typeof val === 'string' ? JSON.parse(val) : val; } catch { return fallback; }

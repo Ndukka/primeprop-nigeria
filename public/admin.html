@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin Panel — PrimeProp Nigeria</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
   <style>
     :root { --dark: #0f172a; }
 
@@ -2248,13 +2248,13 @@
             document.getElementById('userFormEmail').value = u.email || '';
             document.getElementById('userFormRole').value = u.role || 'user';
             document.getElementById('userFormPhone').value = u.phone || '';
-            document.getElementById('userFormAvatar').value = u.avatar || '';
+            document.getElementById('userFormAvatar').value = u.avatar_url || '';
             // User avatar preview (safe DOM)
             var uaPreview = document.getElementById('userAvatarUploadPreview');
             if (uaPreview) {
               clearContainer(uaPreview);
-              if (u.avatar && isSafeUrl(u.avatar)) {
-                uaPreview.appendChild(createPreviewItem(u.avatar, function() {
+              if (u.avatar_url && isSafeUrl(u.avatar_url)) {
+                uaPreview.appendChild(createPreviewItem(u.avatar_url, function() {
                   document.getElementById('userFormAvatar').value = '';
                 }));
               }
