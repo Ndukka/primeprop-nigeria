@@ -225,6 +225,7 @@
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return null;
     const target = event.target;
     if (!(target instanceof Element)) return null;
+    if (target.closest('button,input,select,textarea,[role="button"],[data-pp-action],[data-pp-stop-propagation]')) return null;
     const anchor = target.closest('a[href]');
     if (!(anchor instanceof HTMLAnchorElement)) return null;
     if (anchor.target && anchor.target !== '_self') return null;
@@ -243,6 +244,8 @@
   }
 
   function bindNavigationSkeleton() {
+    // Bubble-phase listeners allow target controls to prevent default or stop
+    // propagation before a full-page navigation skeleton is considered.
     document.addEventListener('click', event => {
       const anchor = navigableAnchorFromEvent(event);
       if (!anchor) return;
@@ -258,7 +261,7 @@
 
       event.preventDefault();
       scheduleNavigation(url);
-    }, true);
+    });
 
     document.addEventListener('submit', event => {
       if (event.defaultPrevented || !(event.target instanceof HTMLFormElement)) return;
@@ -273,7 +276,7 @@
 
       event.preventDefault();
       scheduleNavigation(url);
-    }, true);
+    });
 
     window.addEventListener('pageshow', removePageSkeleton);
   }
@@ -330,6 +333,17 @@
           }
         } catch {
           // Malformed declarative data is ignored rather than evaluated.
+        }
+      });
+    }
+
+    if (action === 'back') {
+      attachDirectListener(element, 'Back', 'click', event => {
+        event.preventDefault();
+        if (window.history.length > 1) {
+          window.history.back();
+        } else {
+          window.location.assign(element.getAttribute('href') || '/properties');
         }
       });
     }
