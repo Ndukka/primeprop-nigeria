@@ -3,12 +3,77 @@ import path from 'node:path';
 
 const baseUrl = (process.env.PRIMEPROP_BASE_URL || '').replace(/\/+$/, '');
 let bearer = (process.env.PRIMEPROP_ADMIN_BEARER || '').trim();
-const adminEmail = (process.env.PRIMEPROP_ADMIN_EMAIL || '').trim().toLowerCase();
-const adminPassword = process.env.PRIMEPROP_ADMIN_PASSWORD || '';
+let adminEmail = (process.env.PRIMEPROP_ADMIN_EMAIL || '').trim().toLowerCase();
+let adminPassword = process.env.PRIMEPROP_ADMIN_PASSWORD || '';
 const outputDirectory = path.resolve(process.cwd(), process.env.PRIMEPROP_AUDIT_OUTPUT || 'audit-output');
 
 function isPlaceholder(value) {
   return /^<[^>]+>$/.test(String(value).trim());
+}
+
+function promptTerminal(label, { secret = false } = {}) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return Promise.resolve('');
+
+  const input = process.stdin;
+  const output = process.stdout;
+  const wasRaw = Boolean(input.isRaw);
+
+  return new Promise((resolve, reject) => {
+    let value = '';
+    let settled = false;
+
+    function cleanup() {
+      input.removeListener('data', onData);
+      if (typeof input.setRawMode === 'function') input.setRawMode(wasRaw);
+      input.pause();
+    }
+
+    function finish(result) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      output.write('\n');
+      resolve(result);
+    }
+
+    function cancel() {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      output.write('\n');
+      reject(new Error('Administrator credential input was cancelled.'));
+    }
+
+    function onData(chunk) {
+      for (const character of String(chunk)) {
+        if (character === '\u0003') {
+          cancel();
+          return;
+        }
+        if (character === '\r' || character === '\n') {
+          finish(value);
+          return;
+        }
+        if (character === '\u007f' || character === '\b') {
+          if (value.length > 0) {
+            value = value.slice(0, -1);
+            if (!secret) output.write('\b \b');
+          }
+          continue;
+        }
+        if (character >= ' ') {
+          value += character;
+          if (!secret) output.write(character);
+        }
+      }
+    }
+
+    output.write(label);
+    input.setEncoding('utf8');
+    if (typeof input.setRawMode === 'function') input.setRawMode(true);
+    input.resume();
+    input.on('data', onData);
+  });
 }
 
 if (!baseUrl || !/^https:\/\//i.test(baseUrl)) {
@@ -17,12 +82,26 @@ if (!baseUrl || !/^https:\/\//i.test(baseUrl)) {
 }
 
 if (isPlaceholder(bearer)) {
-  console.error('PRIMEPROP_ADMIN_BEARER still contains a placeholder. Supply a real access token or use administrator email and password variables.');
+  console.error('PRIMEPROP_ADMIN_BEARER still contains a placeholder. Supply a real access token or use administrator login.');
   process.exit(2);
 }
 if (isPlaceholder(adminEmail) || isPlaceholder(adminPassword)) {
   console.error('Administrator login variables still contain placeholders. Supply real values without angle brackets.');
   process.exit(2);
+}
+
+if (!bearer && process.stdin.isTTY && process.stdout.isTTY) {
+  try {
+    if (!adminEmail) {
+      adminEmail = (await promptTerminal('Administrator email: ')).trim().toLowerCase();
+    }
+    if (!adminPassword) {
+      adminPassword = await promptTerminal('Administrator password: ', { secret: true });
+    }
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : 'Administrator credential input was cancelled.');
+    process.exit(130);
+  }
 }
 
 async function obtainAdministratorBearer() {
@@ -73,13 +152,14 @@ async function obtainAdministratorBearer() {
 }
 
 bearer = await obtainAdministratorBearer();
+adminPassword = '';
 process.env.PRIMEPROP_ADMIN_PASSWORD = '';
 
 if (!bearer) {
   console.error([
     'Administrator authentication is required.',
-    'Either set PRIMEPROP_ADMIN_BEARER to a current access token, or set',
-    'PRIMEPROP_ADMIN_EMAIL and PRIMEPROP_ADMIN_PASSWORD for a temporary login.',
+    'Run this command in an interactive terminal to be prompted securely,',
+    'or set PRIMEPROP_ADMIN_BEARER to a current administrator access token.',
     'Do not include literal <placeholder> text.',
   ].join(' '));
   process.exit(2);
@@ -108,7 +188,7 @@ if (!response.ok || payload?.success !== true) {
     status: response.status,
     message: payload?.message || 'Unknown response',
     remediation: response.status === 401
-      ? 'Use a current administrator token or rerun with administrator email and password variables.'
+      ? 'Use a current active administrator account or bearer token and rerun the audit.'
       : undefined,
   }));
   process.exit(1);
