@@ -13,6 +13,7 @@ export default defineConfig({
       'tests/static-analysis.test.ts',
       'tests/security-headers.test.ts',
       'tests/navigation-regressions.test.ts',
+      'tests/dashboard-client-regressions.test.ts',
     ],
     testTimeout: 30000,
   },
