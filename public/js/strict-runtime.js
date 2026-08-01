@@ -65,7 +65,7 @@
     return text.length <= 500
       && !/[{}]/.test(text)
       && !/@import/i.test(text)
-      && !<\/?style/i.test(text)
+      && !/<\/?style/i.test(text)
       && !/expression\s*\(/i.test(text)
       && !/javascript\s*:/i.test(text);
   }
