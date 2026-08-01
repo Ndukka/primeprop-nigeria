@@ -33,20 +33,25 @@ async function prepareSource() {
   let app = await readFile(appPath, 'utf8');
 
   // Replace JavaScript-generated inline lightbox handlers with declarative data.
-  // The strict runtime attaches direct event listeners through MutationObserver.
+  // These are ordinary quotes inside a template literal, not backslash-escaped
+  // JavaScript string delimiters. The strict runtime attaches direct listeners.
   app = replaceRequired(
     app,
-    /onclick=\\"openLightbox\(\$\{JSON\.stringify\(imageUrls\)\.replace\(\/\\"\/g,'&quot;'\)\}, \$\{i\}\)\\"/g,
-    'data-pp-action=\\"lightbox\\" data-pp-images=\\"${JSON.stringify(imageUrls).replace(/\\"/g,\'&quot;\')}\\" data-pp-index=\\"${i}\\"',
+    /onclick="openLightbox\(\$\{JSON\.stringify\(imageUrls\)\.replace\(\/"\/g,'&quot;'\)\}, \$\{i\}\)"/g,
+    'data-pp-action="lightbox" data-pp-images="${JSON.stringify(imageUrls).replace(/"/g,\'&quot;\')}" data-pp-index="${i}"',
     'multi-image lightbox markup',
   );
 
   app = replaceRequired(
     app,
-    /onclick=\\"openLightbox\(\$\{JSON\.stringify\(imageUrls\)\.replace\(\/\\"\/g,'&quot;'\)\}, 0\)\\"/g,
-    'data-pp-action=\\"lightbox\\" data-pp-images=\\"${JSON.stringify(imageUrls).replace(/\\"/g,\'&quot;\')}\\" data-pp-index=\\"0\\"',
+    /onclick="openLightbox\(\$\{JSON\.stringify\(imageUrls\)\.replace\(\/"\/g,'&quot;'\)\}, 0\)"/g,
+    'data-pp-action="lightbox" data-pp-images="${JSON.stringify(imageUrls).replace(/"/g,\'&quot;\')}" data-pp-index="0"',
     'single-image lightbox markup',
   );
+
+  if (/onclick="openLightbox\(/.test(app)) {
+    throw new Error('An inline lightbox handler remains after strict source preparation');
+  }
 
   await writeFile(appPath, app, 'utf8');
 }
