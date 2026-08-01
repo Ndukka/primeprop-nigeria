@@ -70,10 +70,11 @@ function cleanStringArray(value: unknown, itemLength: number): string[] {
 }
 
 async function profileForUser(c: any, userId: number): Promise<UserProfileRow | null> {
-  return c.env.DB.prepare(
+  const row = await c.env.DB.prepare(
     `SELECT id, email, name, role, phone, avatar_url, agent_title, account_status
      FROM users WHERE id = ?`
-  ).bind(userId).first<UserProfileRow>();
+  ).bind(userId).first();
+  return row as UserProfileRow | null;
 }
 
 function publicProfile(profile: UserProfileRow) {
@@ -89,7 +90,6 @@ function publicProfile(profile: UserProfileRow) {
   };
 }
 
-// GET /auth/profile-settings — account-owned listing identity defaults.
 authRoutes.get('/profile-settings', requireAuth, async (c) => {
   c.header('Cache-Control', 'no-store');
   const user = c.get('user');
@@ -98,7 +98,6 @@ authRoutes.get('/profile-settings', requireAuth, async (c) => {
   return c.json({ success: true, data: publicProfile(profile) });
 });
 
-// PUT /auth/profile-settings — users may edit only their own public profile.
 authRoutes.put('/profile-settings', csrfProtection, requireAuth, async (c) => {
   const user = c.get('user');
   const body = await c.req.json().catch(() => null) as Record<string, any> | null;
@@ -137,7 +136,6 @@ authRoutes.put('/profile-settings', csrfProtection, requireAuth, async (c) => {
   return c.json({ success: true, message: 'Profile updated', data: publicProfile(profile) });
 });
 
-// GET /auth/admin-listings — uncached full DTO for the administrator table.
 authRoutes.get('/admin-listings', requireAuth, requireRole('admin'), async (c) => {
   c.header('Cache-Control', 'no-store');
   const query = c.req.query();
@@ -163,7 +161,6 @@ authRoutes.get('/admin-listings', requireAuth, requireRole('admin'), async (c) =
   });
 });
 
-// POST /auth/listing-records — role-aware browser listing creation.
 authRoutes.post('/listing-records', csrfProtection, requireAuth, async (c) => {
   const user = c.get('user');
   const body = await c.req.json().catch(() => null) as Record<string, any> | null;
@@ -248,7 +245,6 @@ authRoutes.post('/listing-records', csrfProtection, requireAuth, async (c) => {
   return c.json({ success: true, data: rowToListing(created, isAdmin) }, 201);
 });
 
-// PUT /auth/listing-records/:id — factual fields for owners, moderation for admins.
 authRoutes.put('/listing-records/:id', csrfProtection, requireAuth, async (c) => {
   const user = c.get('user');
   const id = sanitizePositiveInt(c.req.param('id'), 0, 0, Number.MAX_SAFE_INTEGER);
@@ -309,7 +305,6 @@ authRoutes.put('/listing-records/:id', csrfProtection, requireAuth, async (c) =>
     updates.images = JSON.stringify(cleanStringArray(normalized.images, 1000));
   }
 
-  // Only administrators may change trust/moderation or listing identity fields.
   if (isAdmin) {
     const adminStrings: Array<[string, number]> = [
       ['badge', 50], ['agent_name', 200], ['agent_role', 120],
