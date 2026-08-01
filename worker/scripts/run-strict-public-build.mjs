@@ -1,0 +1,75 @@
+import { spawnSync } from 'node:child_process';
+import {
+  cp,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const workerDir = path.resolve(scriptDir, '..');
+const repositoryDir = path.resolve(workerDir, '..');
+const publicDir = path.join(repositoryDir, 'public');
+const preparedDir = path.join(repositoryDir, '.strict-public-source');
+const backupDir = path.join(repositoryDir, '.public-source-backup');
+const appPath = path.join(preparedDir, 'js', 'app.js');
+
+function replaceRequired(source, pattern, replacement, label) {
+  const next = source.replace(pattern, replacement);
+  if (next === source) {
+    throw new Error(`Strict source preparation could not find ${label}`);
+  }
+  return next;
+}
+
+async function prepareSource() {
+  await rm(preparedDir, { recursive: true, force: true });
+  await rm(backupDir, { recursive: true, force: true });
+  await cp(publicDir, preparedDir, { recursive: true });
+
+  let app = await readFile(appPath, 'utf8');
+
+  // Replace JavaScript-generated inline lightbox handlers with declarative data.
+  // The strict runtime attaches direct event listeners through MutationObserver.
+  app = replaceRequired(
+    app,
+    /onclick=\\"openLightbox\(\$\{JSON\.stringify\(imageUrls\)\.replace\(\/\\"\/g,'&quot;'\)\}, \$\{i\}\)\\"/g,
+    'data-pp-action=\\"lightbox\\" data-pp-images=\\"${JSON.stringify(imageUrls).replace(/\\"/g,\'&quot;\')}\\" data-pp-index=\\"${i}\\"',
+    'multi-image lightbox markup',
+  );
+
+  app = replaceRequired(
+    app,
+    /onclick=\\"openLightbox\(\$\{JSON\.stringify\(imageUrls\)\.replace\(\/\\"\/g,'&quot;'\)\}, 0\)\\"/g,
+    'data-pp-action=\\"lightbox\\" data-pp-images=\\"${JSON.stringify(imageUrls).replace(/\\"/g,\'&quot;\')}\\" data-pp-index=\\"0\\"',
+    'single-image lightbox markup',
+  );
+
+  await writeFile(appPath, app, 'utf8');
+}
+
+async function restoreSource() {
+  await rm(publicDir, { recursive: true, force: true });
+  await rename(backupDir, publicDir);
+  await rm(preparedDir, { recursive: true, force: true });
+}
+
+await prepareSource();
+await rename(publicDir, backupDir);
+await rename(preparedDir, publicDir);
+
+try {
+  const result = spawnSync(process.execPath, [path.join(scriptDir, 'build-public.mjs')], {
+    cwd: workerDir,
+    stdio: 'inherit',
+    env: process.env,
+  });
+
+  if (result.error) throw result.error;
+  if (result.status !== 0) process.exitCode = result.status ?? 1;
+} finally {
+  await restoreSource();
+}
