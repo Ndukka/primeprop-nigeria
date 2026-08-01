@@ -28,14 +28,35 @@ describe('CSP regression coverage', () => {
     expect(csp).not.toContain('connect-src https:');
   });
 
-  it('replaces an existing nonce instead of adding a duplicate', () => {
-    const html = '<style nonce="old">body{display:block}</style><script nonce="old" src="/js/app.js"></script>';
+  it('replaces existing nonces and injects the compatibility assets once', () => {
+    const html = [
+      '<html><head>',
+      '<style nonce="old">body{display:block}</style>',
+      '</head><body>',
+      '<script nonce="old" src="/js/app.js"></script>',
+      '</body></html>',
+    ].join('');
+
     const result = injectNonces(html, 'fresh');
 
     expect(result).toContain('<style nonce="fresh">');
     expect(result).toContain('<script nonce="fresh" src="/js/app.js">');
+    expect(result).toContain('<link rel="stylesheet" href="/csp-compat.css">');
+    expect(result).toContain('<script nonce="fresh" src="/js/csp-events.js" defer></script>');
     expect(result).not.toContain('nonce="old"');
-    expect(result.match(/nonce="fresh"/g)).toHaveLength(2);
+    expect(result.match(/nonce="fresh"/g)).toHaveLength(3);
+    expect(result.match(/\/csp-compat\.css/g)).toHaveLength(1);
+    expect(result.match(/\/js\/csp-events\.js/g)).toHaveLength(1);
+  });
+
+  it('is idempotent across repeated HTML rewriting', () => {
+    const first = injectNonces('<html><head></head><body></body></html>', 'first');
+    const second = injectNonces(first, 'second');
+
+    expect(second).not.toContain('nonce="first"');
+    expect(second.match(/\/csp-compat\.css/g)).toHaveLength(1);
+    expect(second.match(/\/js\/csp-events\.js/g)).toHaveLength(1);
+    expect(second).toContain('<script nonce="second" src="/js/csp-events.js" defer></script>');
   });
 
   it('classifies clean HTML paths separately from static assets', () => {
