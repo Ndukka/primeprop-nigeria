@@ -33,7 +33,7 @@ The file exists to make recurrence inexpensive: a future engineer should be able
 - **Status**: Resolved in source; the latest branch must be deployed.
 - **Symptoms**: A page appeared without layout or CSS, hard refresh repaired it, and the problem returned after clicking another page.
 - **Root cause**: Relative, unversioned asset URLs allowed browser navigation or back-forward cache to reuse HTML from one revision while loading assets from another revision.
-- **Repair**: `public/` is source only; `build-public.mjs` emits `dist-public/`; local CSS and JavaScript are content-hashed under `/assets/`; references are root-absolute; pages and `asset-manifest.json` share a build ID; HTML is `private, no-store`; hashed assets are immutable; stable aliases revalidate; `.html` and trailing-slash variants redirect to clean canonical URLs.
+- **Repair**: `public/` is source only; `build-public.mjs` emits `dist-public/`; local CSS and JavaScript are content-hashed under `/assets/`; references are root-absolute; pages and `asset-manifest.json` share build identities; HTML is `private, no-store`; hashed assets are immutable; stable aliases revalidate; `.html` and trailing-slash variants redirect to clean canonical URLs.
 - **Prevention**: Strict build of all 14 pages, manifest validation, live Wrangler route tests, and the post-deployment verifier.
 - **Immediate diagnosis**:
   ```bash
@@ -53,7 +53,7 @@ The file exists to make recurrence inexpensive: a future engineer should be able
 - **Status**: Resolved.
 - **Symptoms**: CSP errors for `style="..."`; layout, visibility, positioning, or fallback appearance failed.
 - **Root cause**: Pages still contained inline style attributes while strict CSP blocked style attributes.
-- **Repair**: Static style attributes compile to generated CSS classes; JavaScript visual state uses nonce-authorized stylesheet rules; CSP now uses `style-src-attr 'none'`.
+- **Repair**: Static style attributes compile to generated CSS classes; JavaScript visual state uses nonce-authorized stylesheet rules; CSP uses `style-src-attr 'none'`.
 - **Prevention**: Generated HTML and JavaScript are rejected if inline style markup remains.
 
 ## PP-ERR-004: JavaScript `.style` assignments violated strict CSP policy
@@ -213,7 +213,7 @@ The file exists to make recurrence inexpensive: a future engineer should be able
 - **Status**: Resolved.
 - **Symptoms**: A branch could appear complete without typecheck, runtime, migration, or HTTP asset proof.
 - **Root cause**: Validation was local and informal.
-- **Repair**: Security CI now runs dependency install, TypeScript, strict build, Worker runtime, migrations, and live HTTP tests.
+- **Repair**: Security CI runs dependency install, TypeScript, strict build, Worker runtime, migrations, and live HTTP tests.
 - **Prevention**: Do not merge without a green current-head Security CI run.
 
 ## PP-ERR-024: GitHub Actions used mutable tags
@@ -229,7 +229,7 @@ The file exists to make recurrence inexpensive: a future engineer should be able
 - **Status**: Resolved; any previously used credential must be rotated.
 - **Symptoms**: API documentation contained administrator credentials.
 - **Root cause**: Setup examples used live-looking values.
-- **Repair**: Credentials were removed and documentation now describes secure provisioning only.
+- **Repair**: Credentials were removed and documentation describes secure provisioning only.
 - **Prevention**: Static tests reject the retired credential pattern.
 
 ## PP-ERR-026: JWT signing secret was committed in Wrangler
@@ -294,8 +294,8 @@ The file exists to make recurrence inexpensive: a future engineer should be able
 - **Status**: Resolved in tooling; real administrator credentials are still required.
 - **Symptoms**: `remote_storage_audit_failed`, status 401, `Administrator authentication required`.
 - **Root cause**: Literal `<current-admin-access-token>` placeholder was sent as the bearer token.
-- **Repair**: Script rejects angle-bracket placeholders; accepts a real bearer or temporary `PRIMEPROP_ADMIN_EMAIL`/`PRIMEPROP_ADMIN_PASSWORD`; logs in, verifies the admin role, keeps the token in memory, and never logs or persists it.
-- **Prevention**: Static tests require placeholder rejection and the temporary login path.
+- **Repair**: Script rejects angle-bracket placeholders; accepts a real bearer or prompts interactively for administrator email/password; logs in, verifies the admin role, keeps the token in memory, and never logs or persists it.
+- **Prevention**: Static tests require placeholder rejection, interactive login, and secret-output checks.
 
 ## PP-ERR-034: Placeholder repository path was executed literally
 
@@ -325,13 +325,18 @@ The file exists to make recurrence inexpensive: a future engineer should be able
 - **Repair**: Strict source preparation replaces `.spinner`, `fa-spinner`, and dynamically generated spinner markup with accessible skeletons; removes `.spinner` CSS and `@keyframes spin`; navigation uses a responsive full-page skeleton; `pageshow` clears stale overlays; reduced-motion users receive a static skeleton.
 - **Prevention**: Generated HTML rejects `spinner` and `fa-spinner`; generated CSS rejects spinner rules/keyframes; runtime tests require shared skeleton behavior.
 
-## PP-ERR-037: Local Wrangler version differed from CI
+## PP-ERR-037: Local deployment used a different Wrangler version than CI
 
-- **Status**: Warning recorded; direct dependency upgrade remains separate work.
-- **Symptoms**: Local deployment used Wrangler 4.34.0 while CI used 4.118.0.
-- **Root cause**: Wrangler was not a direct exact top-level development dependency, allowing a different resolved `npx` version.
-- **Repair guidance**: Prefer repository scripts; upgrade `package.json` and `package-lock.json` atomically in a reviewed commit; never hand-edit only one.
-- **Prevention**: Record `npx wrangler --version` in release logs.
+- **Status**: Resolved.
+- **Symptoms**: Local `npm run deploy` used Wrangler 4.34.0 while CI and Worker integration used 4.118.0.
+- **Root cause**: Wrangler was transitive rather than a direct command dependency, so the shell resolved an older global CLI.
+- **Repair**: `run-wrangler.mjs` resolves the repository-installed tested package, requires exact version 4.118.0, refuses any other version, and is used by `dev`, `deploy`, and D1 migration scripts.
+- **Prevention**: Static tests reject bare `wrangler deploy` and require the exact-version runner.
+- **Immediate diagnosis**:
+  ```bash
+  npm run deploy -- --dry-run
+  ```
+  Confirm the first JSON line reports `primeprop_wrangler_selected` with version `4.118.0`.
 
 ## PP-ERR-038: Duplicate signup leaked account existence
 
@@ -363,15 +368,42 @@ The file exists to make recurrence inexpensive: a future engineer should be able
 - **Symptoms**: The property-detail “Back to listings” control could navigate to an invalid `/javascript:history.back()` path instead of returning to the previous page.
 - **Root cause**: A legacy `href="javascript:history.back()"` survived in generated markup; root-absolute URL rewriting treated it as a relative path and prefixed `/`.
 - **Repair**: Strict source preparation converts legacy history links to `href="/properties" data-pp-action="back"`; the strict runtime calls `history.back()` when history exists and uses `/properties` as a real fallback.
-- **Prevention**: Generated-page tests reject all `javascript:` URLs and the specific rewritten `/javascript:history.back()` form; runtime tests require the safe back action.
+- **Prevention**: Generated-page tests reject all `javascript:` URLs and the specific rewritten form; runtime tests require the safe back action.
 
 ## PP-ERR-042: Navigation skeleton could hijack nested interactive controls
 
 - **Status**: Resolved.
 - **Symptoms**: Clicking a favorite, lightbox control, button, or other interactive child inside an anchor could display the full-page skeleton and navigate before the component handler finished.
 - **Root cause**: The first navigation listener ran in capture phase, before target handlers could call `preventDefault()` or `stopPropagation()`.
-- **Repair**: Navigation interception now runs in bubble phase; it ignores buttons, inputs, selects, textareas, role buttons, `data-pp-action`, and stop-propagation controls; only genuine same-origin page navigation is intercepted.
+- **Repair**: Navigation interception runs in bubble phase; it ignores buttons, inputs, selects, textareas, role buttons, `data-pp-action`, and stop-propagation controls; only genuine same-origin page navigation is intercepted.
 - **Prevention**: Static tests require the interactive-target exclusion and prohibit regressions to unsafe page interception.
+
+## PP-ERR-043: Post-deployment verification observed mixed Worker asset revisions
+
+- **Status**: Resolved in deployment tooling; the corrected branch must be redeployed.
+- **First observed**: Deployment version `838d5f04-8553-4081-b786-92bd5fdef870`.
+- **Symptoms**: `asset-manifest.json` described the new 14-page build, while `/`, `/login`, and `/reset-password` returned HTML with different build IDs; hashed runtime and login CSS requests returned 404 immediately after deployment.
+- **Root cause**: The deploy used an older global Wrangler version, and the one-shot verifier sampled requests while Cloudflare edge locations were converging on the new Worker/static-asset unit. A single mixed round was reported as a permanent release failure.
+- **Repair**: Operator commands now use exact tested Wrangler 4.118.0. The verifier adds unique cache-busting query parameters, sends no-cache/no-store headers, records `cf-ray` on failures, retries bounded rounds, and requires two consecutive clean rounds with the same manifest identity before declaring success.
+- **Prevention**: Use `npm run deploy:verified` with `PRIMEPROP_BASE_URL` set. Never accept one successful request or one failing request as proof of global deployment coherence.
+- **Immediate diagnosis**:
+  ```bash
+  PRIMEPROP_BASE_URL="https://primeprop-worker.ndupsn.workers.dev" \
+    npm run verify:deployment
+  ```
+
+## PP-ERR-044: Bash `read -p` audit instructions failed in zsh
+
+- **Status**: Resolved.
+- **Symptoms**: zsh printed `read: -p: no coprocess`; email/password variables remained empty; the audit exited 2 with `Administrator authentication is required`.
+- **Root cause**: `read -p` is Bash prompt syntax but has different meaning in zsh.
+- **Repair**: `audit-cloudflare-data.mjs` owns the interactive prompt. It reads the email, disables terminal echo for the password, restores terminal mode, supports Ctrl-C, and works independently of the invoking shell.
+- **Prevention**: Run the Node command directly. Static tests prohibit reintroducing shell-specific `read -p` instructions.
+- **Immediate diagnosis and execution**:
+  ```bash
+  PRIMEPROP_BASE_URL="https://primeprop-worker.ndupsn.workers.dev" \
+    npm run audit:cloudflare-data
+  ```
 
 ---
 
@@ -385,26 +417,20 @@ npm ci
 npm run test:all
 ```
 
-After deployment:
-
-```bash
-PRIMEPROP_BASE_URL="https://primeprop-worker.ndupsn.workers.dev" \
-  npm run verify:deployment
-```
-
-For the live read-only D1/R2 audit:
+Deploy and require stable post-deployment verification:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)/worker"
-export PRIMEPROP_BASE_URL="https://primeprop-worker.ndupsn.workers.dev"
-read -r -p "Administrator email: " PRIMEPROP_ADMIN_EMAIL
-read -r -s -p "Administrator password: " PRIMEPROP_ADMIN_PASSWORD
-echo
-export PRIMEPROP_ADMIN_EMAIL PRIMEPROP_ADMIN_PASSWORD
-npm run audit:cloudflare-data
-AUDIT_EXIT=$?
-unset PRIMEPROP_ADMIN_PASSWORD PRIMEPROP_ADMIN_EMAIL
-printf 'audit exit: %s\n' "$AUDIT_EXIT"
+PRIMEPROP_BASE_URL="https://primeprop-worker.ndupsn.workers.dev" \
+  npm run deploy:verified
+```
+
+Run the live read-only D1/R2 audit. The script prompts for credentials in the terminal and does not echo the password:
+
+```bash
+cd "$(git rev-parse --show-toplevel)/worker"
+PRIMEPROP_BASE_URL="https://primeprop-worker.ndupsn.workers.dev" \
+  npm run audit:cloudflare-data
 ```
 
 Audit exit code `3` means high-severity findings require human review. It does not mean the audit transport failed and must never trigger automatic deletion.
