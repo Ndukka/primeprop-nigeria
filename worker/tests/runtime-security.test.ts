@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { exports } from 'cloudflare:workers';
 
-const BASE = 'https://primeprop.test';
+const BASE = 'https://primeprop-worker.ndupsn.workers.dev';
 const ADMIN_EMAIL = 'test-admin@primeprop.invalid';
 const ADMIN_PASSWORD = 'TestAdmin123!';
 
