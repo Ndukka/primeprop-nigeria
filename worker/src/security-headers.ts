@@ -2,12 +2,9 @@
  * PP-SEC-010 / PP-SEC-011: Security Headers & Strict CSP
  *
  * Provides nonce generation, CSP header construction, HTML nonce injection,
- * and security header setters for both HTML pages and API responses.
+ * and security header setters for HTML, assets, and API responses.
  */
 
-// ── Nonce Generation ──────────────────────────────────────
-// 192 bits of entropy (24 random bytes), base64url-encoded.
-// Regenerated per request so every page load gets a fresh nonce.
 export function generateNonce(): string {
   const bytes = new Uint8Array(24);
   crypto.getRandomValues(bytes);
@@ -17,15 +14,12 @@ export function generateNonce(): string {
     .replace(/=+$/, '');
 }
 
-// ── CSP Builders ──────────────────────────────────────────
-
 /**
  * CSP for HTML pages.
  *
- * Scripts remain nonce-only. The current static pages and app.js still use
- * style attributes and element.style assignments, which nonces cannot cover.
- * style-src-attr therefore permits inline CSS attributes only. This does not
- * permit inline JavaScript or event handlers.
+ * The deployable dist-public bundle contains no style attributes, inline event
+ * attributes, inline script blocks, or inline style blocks. All executable
+ * scripts and runtime-generated styles receive the per-response nonce.
  */
 export function buildCsp(nonce: string): string {
   return [
@@ -34,7 +28,7 @@ export function buildCsp(nonce: string): string {
     "script-src-attr 'none'",
     "style-src 'self' 'nonce-" + nonce + "' https://cdnjs.cloudflare.com https://fonts.googleapis.com",
     "style-src-elem 'self' 'nonce-" + nonce + "' https://cdnjs.cloudflare.com https://fonts.googleapis.com",
-    "style-src-attr 'unsafe-inline'",
+    "style-src-attr 'none'",
     "img-src 'self' data: blob: https://images.unsplash.com https://randomuser.me https://lh3.googleusercontent.com",
     "font-src 'self' data: https://cdnjs.cloudflare.com https://fonts.gstatic.com",
     "connect-src 'self'",
@@ -50,48 +44,17 @@ export function buildCsp(nonce: string): string {
   ].join('; ');
 }
 
-/**
- * Minimal CSP for JSON API responses.
- */
 export const API_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
-
-// ── Nonce Injection ───────────────────────────────────────
 
 function replaceNonceAttribute(attrs: string, nonce: string): string {
   const withoutExistingNonce = attrs.replace(/\snonce\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
   return ` nonce="${nonce}"${withoutExistingNonce}`;
 }
 
-function injectCspCompatibilityAssets(html: string, nonce: string): string {
-  if (!html.includes('/csp-compat.css')) {
-    const stylesheet = '<link rel="stylesheet" href="/csp-compat.css">';
-    if (/<\/head>/i.test(html)) {
-      html = html.replace(/<\/head>/i, `${stylesheet}\n</head>`);
-    } else {
-      html = `${stylesheet}\n${html}`;
-    }
-  }
-
-  if (!html.includes('/js/csp-events.js')) {
-    const bridge = `<script nonce="${nonce}" src="/js/csp-events.js" defer></script>`;
-    if (/<\/body>/i.test(html)) {
-      html = html.replace(/<\/body>/i, `${bridge}\n</body>`);
-    } else {
-      html = `${html}\n${bridge}`;
-    }
-  }
-
-  return html;
-}
-
 /**
- * Injects a fresh nonce into every script and style opening tag.
- * Existing nonce attributes are replaced rather than duplicated.
- *
- * A temporary external compatibility bridge is also added while legacy inline
- * event attributes are migrated to addEventListener. The CSP continues to
- * block the attributes themselves; the bridge executes only an explicit
- * function allowlist without eval.
+ * Injects a fresh nonce into every external script and any runtime-created
+ * style element placeholder. Existing nonce attributes are replaced rather
+ * than duplicated. The function does not inject compatibility assets.
  */
 export function injectNonces(html: string, nonce: string): string {
   html = html.replace(/<script(\s[^>]*)?>/gi, (_match, attrs = '') => {
@@ -102,20 +65,14 @@ export function injectNonces(html: string, nonce: string): string {
     return `<style${replaceNonceAttribute(attrs, nonce)}>`;
   });
 
-  return injectCspCompatibilityAssets(html, nonce);
+  return html;
 }
-
-// ── Security Header Setters ───────────────────────────────
 
 export function setHtmlSecurityHeaders(headers: Headers, nonce: string): void {
   headers.set('Content-Security-Policy', buildCsp(nonce));
   setCommonSecurityHeaders(headers);
 }
 
-/**
- * Security headers for non-HTML assets. CSP is intentionally omitted because
- * it is enforced by the containing HTML document.
- */
 export function setAssetSecurityHeaders(headers: Headers): void {
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -136,11 +93,6 @@ function setCommonSecurityHeaders(headers: Headers): void {
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
 }
 
-// ── Path Detection ────────────────────────────────────────
-
-/**
- * Returns true if the request path should be served as HTML.
- */
 export function isHtmlPath(path: string): boolean {
   if (path === '/' || path === '') return true;
 
@@ -148,7 +100,5 @@ export function isHtmlPath(path: string): boolean {
   if (staticExts.test(path)) return false;
 
   if (/\.html$/i.test(path)) return true;
-
-  // Cloudflare clean URLs remove the .html suffix.
   return !path.includes('.');
 }
