@@ -22,7 +22,7 @@ function generatedSource(sourcePath: string): string {
   return readDist(generatedPath.replace(/^\//, ''));
 }
 
-describe('dashboard database and session regressions', () => {
+describe('dashboard database, profile, and session regressions', () => {
   it('ships the shared client runtime on admin and agent pages', () => {
     const admin = readDist('admin.html');
     const agent = readDist('agent.html');
@@ -48,15 +48,20 @@ describe('dashboard database and session regressions', () => {
     expect(client).not.toMatch(/finally\s*\([^)]*\/login/);
   });
 
-  it('loads all listing pages instead of treating the first API page as the catalogue', () => {
+  it('loads complete public and authenticated admin inventories', () => {
     const client = generatedSource('js/client-data.js');
+    const admin = generatedSource('js/admin-data.js');
     const catalogue = generatedSource('js/catalog-data.js');
 
-    expect(client).toContain("baseParams.set('limit', String(PAGE_SIZE))");
+    expect(client).toContain('fetchPaginatedListings');
+    expect(client).toContain("fetchPaginatedListings('/api/listings'");
+    expect(client).toContain("fetchPaginatedListings('/auth/admin-listings'");
     expect(client).toContain("params.set('page', String(page))");
     expect(client).toContain('page <= totalPages');
+    expect(admin).toContain('client.fetchAllAdminListings');
+    expect(admin).toContain('filteredAdminListings');
+    expect(admin).toContain('No listings match the selected filters.');
     expect(catalogue).toContain('client.fetchAllListings(filters)');
-    expect(catalogue).toContain('client.renderGridError');
   });
 
   it('distinguishes failed dashboard requests from genuinely empty database tables', () => {
@@ -80,6 +85,43 @@ describe('dashboard database and session regressions', () => {
     expect(agent).toContain('price_unit:');
   });
 
+  it('routes browser listing writes through role-aware endpoints', () => {
+    const admin = generatedSource('js/admin-data.js');
+    const agent = generatedSource('js/agent-data.js');
+
+    for (const source of [admin, agent]) {
+      expect(source).toContain("return '/auth/listing-records'");
+      expect(source).toContain("'/auth/listing-records/'");
+      expect(source).toContain('roleAwareListingUrl');
+    }
+  });
+
+  it('moves agent identity into one saved profile and disables listing overrides', () => {
+    const agent = generatedSource('js/agent-data.js');
+
+    expect(agent).toContain("client.requestJson('/auth/profile-settings'");
+    expect(agent).toContain("method: 'PUT'");
+    expect(agent).toContain('These details are saved to your account');
+    expect(agent).toContain("'formAgentPhone'");
+    expect(agent).toContain("'formAgentAvatar'");
+    expect(agent).toContain("'formBadge'");
+    expect(agent).toContain("'formFeatured'");
+    expect(agent).toContain('control.disabled = true');
+    expect(agent).toContain('group.hidden = true');
+    expect(agent).toContain('Edit Profile');
+  });
+
+  it('offers service apartments in admin, agent, and public property selectors', () => {
+    const admin = generatedSource('js/admin-data.js');
+    const agent = generatedSource('js/agent-data.js');
+    const catalogue = generatedSource('js/catalog-data.js');
+
+    for (const source of [admin, agent, catalogue]) {
+      expect(source).toContain('service-apartment');
+      expect(source).toContain('Service Apartment');
+    }
+  });
+
   it('routes wrong-role and expired sessions away from dashboards', () => {
     const admin = generatedSource('js/admin-data.js');
     const agent = generatedSource('js/agent-data.js');
@@ -87,6 +129,8 @@ describe('dashboard database and session regressions', () => {
     expect(admin).toContain("AUTH_USER.role !== 'admin'");
     expect(admin).toContain("window.location.replace('/agent')");
     expect(admin).toContain("window.location.replace('/login?reason=session-expired')");
+    expect(agent).toContain("USER.role === 'admin'");
+    expect(agent).toContain("window.location.replace('/admin')");
     expect(agent).toContain("window.location.replace('/login?reason=session-expired')");
   });
 
