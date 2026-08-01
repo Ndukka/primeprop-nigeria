@@ -840,6 +840,8 @@ export default {
       const assetResponse = await env.ASSETS.fetch(request);
       if (assetResponse.ok) {
         const headers = new Headers(assetResponse.headers);
+        // Prevent stale cached assets without proper CSP nonce
+        headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
         setAssetSecurityHeaders(headers);
         return new Response(assetResponse.body, {
           status: assetResponse.status,
