@@ -1,7 +1,7 @@
 /* PrimeProp strict CSP runtime.
  *
  * This file contains no inline-handler parser and never evaluates strings as
- * JavaScript. It converts declarative data-pp-style values into nonce-authorized
+ * JavaScript. It converts declarative data-pp-css values into nonce-authorized
  * stylesheet rules and attaches direct event listeners to dynamic elements.
  */
 (() => {
@@ -128,9 +128,9 @@
   function bindElement(element) {
     if (!(element instanceof Element)) return;
 
-    if (element.hasAttribute('data-pp-style')) {
-      applyDeclaration(element, element.getAttribute('data-pp-style') || '');
-      element.removeAttribute('data-pp-style');
+    if (element.hasAttribute('data-pp-css')) {
+      applyDeclaration(element, element.getAttribute('data-pp-css') || '');
+      element.removeAttribute('data-pp-css');
     }
 
     if (element.matches('[data-pp-image-fallback]') && element instanceof HTMLImageElement) {
@@ -185,7 +185,7 @@
   function scan(root) {
     if (root instanceof Element) bindElement(root);
     if (!(root instanceof Document || root instanceof DocumentFragment || root instanceof Element)) return;
-    root.querySelectorAll('[data-pp-style], [data-pp-image-fallback], [data-pp-stop-propagation], [data-pp-action]')
+    root.querySelectorAll('[data-pp-css], [data-pp-image-fallback], [data-pp-stop-propagation], [data-pp-action]')
       .forEach(bindElement);
   }
 
