@@ -62,9 +62,36 @@ function replaceNonceAttribute(attrs: string, nonce: string): string {
   return ` nonce="${nonce}"${withoutExistingNonce}`;
 }
 
+function injectCspCompatibilityAssets(html: string, nonce: string): string {
+  if (!html.includes('/csp-compat.css')) {
+    const stylesheet = '<link rel="stylesheet" href="/csp-compat.css">';
+    if (/<\/head>/i.test(html)) {
+      html = html.replace(/<\/head>/i, `${stylesheet}\n</head>`);
+    } else {
+      html = `${stylesheet}\n${html}`;
+    }
+  }
+
+  if (!html.includes('/js/csp-events.js')) {
+    const bridge = `<script nonce="${nonce}" src="/js/csp-events.js" defer></script>`;
+    if (/<\/body>/i.test(html)) {
+      html = html.replace(/<\/body>/i, `${bridge}\n</body>`);
+    } else {
+      html = `${html}\n${bridge}`;
+    }
+  }
+
+  return html;
+}
+
 /**
  * Injects a fresh nonce into every script and style opening tag.
  * Existing nonce attributes are replaced rather than duplicated.
+ *
+ * A temporary external compatibility bridge is also added while legacy inline
+ * event attributes are migrated to addEventListener. The CSP continues to
+ * block the attributes themselves; the bridge executes only an explicit
+ * function allowlist without eval.
  */
 export function injectNonces(html: string, nonce: string): string {
   html = html.replace(/<script(\s[^>]*)?>/gi, (_match, attrs = '') => {
@@ -75,7 +102,7 @@ export function injectNonces(html: string, nonce: string): string {
     return `<style${replaceNonceAttribute(attrs, nonce)}>`;
   });
 
-  return html;
+  return injectCspCompatibilityAssets(html, nonce);
 }
 
 // ── Security Header Setters ───────────────────────────────
