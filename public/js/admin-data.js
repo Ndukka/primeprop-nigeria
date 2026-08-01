@@ -138,6 +138,10 @@
 
   function refreshAfterAuthenticatedBootstrap(attempt = 0) {
     if (AUTH_USER) {
+      if (AUTH_USER.role !== 'admin') {
+        window.location.replace('/agent');
+        return;
+      }
       window.loadData();
       if (activeTab === 'districts') window.loadDistrictsData();
       if (activeTab === 'users') window.loadUsersData();
