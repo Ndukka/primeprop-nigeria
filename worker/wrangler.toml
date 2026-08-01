@@ -33,3 +33,9 @@ class_name = "RateLimiter"
 # Static assets
 [assets]
 directory = "../"
+not_found_handling = "none"
+
+# Exclude sensitive / build directories from asset upload
+[assets.upload]
+include = ["*.html", "*.css", "*.js", "*.png", "*.jpg", "*.svg", "*.ico", "*.json", "*.webp", "*.gif"]
+exclude = ["node_modules/**", ".git/**", "worker/**", "data/**", "*.lock", "auth copy/**", ".wrangler/**", ".DS_Store"]
