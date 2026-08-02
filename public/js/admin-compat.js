@@ -3,6 +3,8 @@
   'use strict';
 
   const client = window.PrimePropClient;
+  const originalRenderTable = window.renderTable;
+  const originalLoadData = window.loadData;
 
   function safeManagedMediaUrl(value) {
     return typeof value === 'string'
@@ -82,6 +84,101 @@
     }
     configureAddButton(addButton, 'Add Listing', window.openAddModal);
   };
+
+  function visibleAdminListings() {
+    const search = String(document.getElementById('searchInput')?.value || '').trim().toLowerCase();
+    const type = String(document.getElementById('filterType')?.value || 'all');
+    const city = String(document.getElementById('filterCity')?.value || 'all');
+    return allListings.filter(listing => {
+      if (type !== 'all' && listing.type !== type) return false;
+      if (city !== 'all' && listing.city !== city) return false;
+      if (!search) return true;
+      return [listing.title, listing.location, listing.area, listing.city]
+        .some(value => String(value || '').toLowerCase().includes(search));
+    });
+  }
+
+  function approvalBadge(status) {
+    const badge = document.createElement('span');
+    const approved = status === 'approved';
+    badge.className = `badge ${approved ? 'badge-land' : 'badge-featured'}`;
+    badge.textContent = approved ? 'Approved · Live' : 'Pending approval';
+    badge.style.marginTop = '4px';
+    return badge;
+  }
+
+  function approvalButton(listing) {
+    const approved = listing.approvalStatus === 'approved';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = approved ? 'btn btn-outline btn-xs' : 'btn btn-success btn-xs';
+    button.title = approved ? 'Remove from public listings' : 'Approve and publish';
+    const icon = document.createElement('i');
+    icon.className = approved ? 'fa-solid fa-eye-slash' : 'fa-solid fa-circle-check';
+    button.appendChild(icon);
+    button.addEventListener('click', () => {
+      if (approved && !window.confirm(`Remove "${listing.title || 'this listing'}" from the public catalogue?`)) return;
+      void setListingApproval(listing.id, approved ? 'pending' : 'approved');
+    });
+    return button;
+  }
+
+  async function setListingApproval(id, approvalStatus) {
+    window.showLoading(true);
+    try {
+      const body = await client.requestJson(`/auth/admin-listings/${encodeURIComponent(id)}/approval`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approvalStatus }),
+      }, window.apiFetch);
+      window.showToast(body.message || 'Listing approval updated.', 'success');
+      await window.loadData();
+    } catch (error) {
+      console.error(error);
+      window.showToast(error.message || 'Listing approval could not be updated.', 'error');
+    } finally {
+      window.showLoading(false);
+    }
+  }
+
+  if (typeof originalRenderTable === 'function') {
+    window.renderTable = function renderTableWithApproval() {
+      originalRenderTable();
+      const rows = visibleAdminListings();
+      const renderedRows = Array.from(document.querySelectorAll('#tableBody > tr'));
+      if (renderedRows.length !== rows.length) return;
+
+      renderedRows.forEach((row, index) => {
+        const listing = rows[index];
+        const titleCell = row.cells[1];
+        const actionsCell = row.cells[9]?.querySelector('.actions-cell');
+        if (titleCell) titleCell.append(document.createElement('br'), approvalBadge(listing.approvalStatus));
+        if (actionsCell) actionsCell.prepend(approvalButton(listing));
+      });
+    };
+  }
+
+  function updateInventoryStats() {
+    if (!Array.isArray(allListings)) return;
+    const values = {
+      statTotal: allListings.length,
+      statRent: allListings.filter(listing => listing.type === 'rent').length,
+      statSale: allListings.filter(listing => listing.type === 'sale').length,
+      statLand: allListings.filter(listing => listing.type === 'land').length,
+      statFeatured: allListings.filter(listing => listing.featured).length,
+    };
+    for (const [id, value] of Object.entries(values)) {
+      const element = document.getElementById(id);
+      if (element) element.textContent = String(value);
+    }
+  }
+
+  if (typeof originalLoadData === 'function') {
+    window.loadData = async function loadDataWithInventoryStats() {
+      await originalLoadData();
+      updateInventoryStats();
+    };
+  }
 
   const roleSelect = document.getElementById('userFormRole');
   const unsupportedUserRole = roleSelect?.querySelector('option[value="user"]');

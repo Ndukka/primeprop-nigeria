@@ -28,7 +28,8 @@ export function rowToListing(row: any, isAdmin: boolean = false) {
   if (!row) return null;
   const agentName = row.agent_name || '';
 
-  // Base fields always safe for public
+  // Base fields always safe for public. Public catalogue routes only return
+  // approved rows, while the same DTO lets an agent see their own pending state.
   const dto: Record<string, any> = {
     id: row.id,
     title: row.title || '',
@@ -49,6 +50,7 @@ export function rowToListing(row: any, isAdmin: boolean = false) {
     featured: Boolean(row.featured),
     verified: Boolean(row.verified),
     badge: row.badge || '',
+    approvalStatus: row.approval_status || 'approved',
     amenities: safeJsonParse(row.amenities, []),
     images: safeJsonParse(row.images, []).map((url: string) => ({
       url,
@@ -74,11 +76,12 @@ export function rowToListing(row: any, isAdmin: boolean = false) {
     updatedAt: row.updated_at || '',
   };
 
-  // Admin-only fields (internal ownership, agent contact, moderation data)
+  // Admin-only fields (internal ownership, agent contact, approval audit data)
   if (isAdmin) {
     dto.createdBy = row.created_by;
     dto.agent.phone = row.agent_phone || '';
-    dto.moderationStatus = row.moderation_status || '';
+    dto.approvedBy = row.approved_by == null ? null : Number(row.approved_by);
+    dto.approvedAt = row.approved_at || '';
   }
 
   return dto;

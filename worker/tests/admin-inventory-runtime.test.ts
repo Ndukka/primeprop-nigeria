@@ -195,7 +195,14 @@ describe.sequential('public listing contact actions', () => {
     ).bind(`Inactive contact ${crypto.randomUUID()}`).run();
     const listingId = Number(inserted.meta.last_row_id);
 
-    await testEnv.DB.prepare("UPDATE users SET account_status = 'banned' WHERE id = 2").run();
+    await testEnv.DB.batch([
+      testEnv.DB.prepare(
+        `UPDATE listings
+         SET approval_status = 'approved', approved_by = 1, approved_at = datetime('now')
+         WHERE id = ?`,
+      ).bind(listingId),
+      testEnv.DB.prepare("UPDATE users SET account_status = 'banned' WHERE id = 2"),
+    ]);
     try {
       const response = await workerFetch(`/auth/listing-contact/${listingId}/whatsapp`);
       expect(response.status).toBe(404);

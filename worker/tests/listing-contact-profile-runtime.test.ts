@@ -18,6 +18,12 @@ describe('live listing contact identity', () => {
     const listingId = Number(inserted.meta.last_row_id);
 
     try {
+      await testEnv.DB.prepare(
+        `UPDATE listings
+         SET approval_status = 'approved', approved_by = 1, approved_at = datetime('now')
+         WHERE id = ?`,
+      ).bind(listingId).run();
+
       const [whatsapp, call] = await Promise.all([
         workerFetch(`/auth/listing-contact/${listingId}/whatsapp`, { redirect: 'manual' }),
         workerFetch(`/auth/listing-contact/${listingId}/call`),

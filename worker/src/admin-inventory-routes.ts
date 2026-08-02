@@ -115,7 +115,8 @@ async function listingContact(c: any, id: number): Promise<ListingContactRow | n
      LEFT JOIN users u
        ON u.id = l.created_by
       AND COALESCE(u.account_status, 'active') = 'active'
-     WHERE l.id = ?`,
+     WHERE l.id = ?
+       AND l.approval_status = 'approved'`,
   ).bind(id).first();
   return row as ListingContactRow | null;
 }

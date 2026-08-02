@@ -6,6 +6,8 @@
   if (!client) throw new Error('PrimePropClient must load before the agent dashboard.');
 
   const originalApiFetch = window.apiFetch;
+  const originalRenderTable = window.renderTable;
+  const originalShowToast = window.showToast;
   let currentProfile = null;
 
   function safeMediaUrl(value) {
@@ -38,6 +40,40 @@
       ...listing,
       property_type: listing.property_type || listing.propertyType || 'apartment',
       price_unit: listing.price_unit || listing.priceUnit || '',
+      approval_status: listing.approval_status || listing.approvalStatus || 'pending',
+    };
+  }
+
+  function decorateApprovalStatuses() {
+    const rows = Array.from(document.querySelectorAll('#tableBody > tr'));
+    if (rows.length !== myListings.length) return;
+    rows.forEach((row, index) => {
+      const listing = myListings[index];
+      const cell = row.cells[5];
+      if (!cell) return;
+      const approved = listing.approval_status === 'approved';
+      cell.textContent = approved ? '✓ Approved · Live' : '⏳ Pending admin approval';
+      cell.style.color = approved ? '#15803d' : '#b45309';
+      cell.style.fontWeight = '600';
+    });
+  }
+
+  if (typeof originalRenderTable === 'function') {
+    window.renderTable = function renderTableWithApproval() {
+      originalRenderTable();
+      decorateApprovalStatuses();
+    };
+  }
+
+  if (typeof originalShowToast === 'function') {
+    window.showToast = function showApprovalAwareToast(message, type = '') {
+      let text = message;
+      if (message === 'Listing created!') {
+        text = 'Listing submitted for administrator approval.';
+      } else if (message === 'Listing updated!') {
+        text = 'Listing updated and returned for administrator approval.';
+      }
+      return originalShowToast(text, type);
     };
   }
 
@@ -238,7 +274,7 @@
       currentProfile = body.data;
       USER = { ...USER, ...currentProfile };
       document.getElementById('agentName').textContent = currentProfile.name || USER.name;
-      setProfileStatus('Profile saved. Existing and future listings now use these details.');
+      setProfileStatus('Profile saved. Affected listings require administrator approval again.');
       await window.loadData();
     } catch (error) {
       console.error(error);
