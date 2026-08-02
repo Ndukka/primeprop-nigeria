@@ -124,14 +124,16 @@ describe('feedback CSRF recovery and frontend contracts', () => {
     expect(agent).toContain('Ratings, review comments and agent reports are unavailable for this legacy listing profile');
   });
 
-  it('records the reviewer feedback incidents in the permanent error bank', () => {
+  it('records the reviewer feedback incidents in the error bank', () => {
     const errors = source('errors.md');
+    const profileError = source('docs/errors/PP-ERR-049-agent-profile-feedback-source.md');
+
     expect(errors).toContain('PP-ERR-047');
     expect(errors).toContain('PP-ERR-048');
-    expect(errors).toContain('PP-ERR-049');
     expect(errors).toContain('CSRF token mismatch');
     expect(errors).toContain('automatic Google return');
     expect(errors).toContain('stale professional CSRF cookie');
-    expect(errors).toContain('single resolved profile source');
+    expect(profileError).toContain('PP-ERR-049');
+    expect(profileError).toContain('single resolved profile');
   });
 });
