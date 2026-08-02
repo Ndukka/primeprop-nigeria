@@ -34,6 +34,7 @@ export default defineConfig({
       'tests/listing-approval-runtime.test.ts',
       'tests/suspended-media-runtime.test.ts',
       'tests/feedback-runtime.test.ts',
+      'tests/feedback-csrf-runtime.test.ts',
     ],
     setupFiles: ['./tests/setup-worker.ts'],
     testTimeout: 30000,
