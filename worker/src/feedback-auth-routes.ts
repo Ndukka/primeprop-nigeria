@@ -16,11 +16,9 @@ import {
   oauthCookies,
   professionalConflict,
   randomBase64Url,
-  returnPathWithFeedbackStatus,
   reviewerEmailConflict,
   reviewerSessionCookies,
   revokeReviewerSession,
-  safeFeedbackReturnPath,
   sha256Base64Url,
   signFeedbackValue,
   timingSafeEqual,
@@ -36,6 +34,10 @@ import {
   reviewerRequestProof,
   validateSessionCsrf,
 } from './feedback-csrf';
+import {
+  feedbackReturnWithStatus,
+  safeFeedbackReturn,
+} from './feedback-return';
 
 const GOOGLE_AUTHORIZATION_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -88,7 +90,7 @@ function relativeRedirect(location: string, status = 302): Response {
 
 function redirectWithClearedOauth(returnTo: string, status: string): Response {
   return appendSetCookies(
-    relativeRedirect(returnPathWithFeedbackStatus(returnTo, status)),
+    relativeRedirect(feedbackReturnWithStatus(returnTo, status)),
     clearOauthCookies(),
   );
 }
@@ -117,7 +119,7 @@ authRoutes.get('/feedback/google', async c => {
   const state = randomBase64Url(32);
   const nonce = randomBase64Url(32);
   const verifier = randomBase64Url(64);
-  const returnTo = safeFeedbackReturnPath(c.req.query('returnTo'));
+  const returnTo = safeFeedbackReturn(c.req.query('returnTo'));
   const challenge = await sha256Base64Url(verifier);
 
   const signed = {
@@ -148,7 +150,7 @@ authRoutes.get('/feedback/google/callback', async c => {
   const redirectUri = configuredFeedbackRedirect(env);
 
   const signedReturn = getCookie(c.req.raw, FEEDBACK_OAUTH_RETURN_COOKIE);
-  const returnTo = safeFeedbackReturnPath(
+  const returnTo = safeFeedbackReturn(
     signedReturn ? await verifyFeedbackValue(signedReturn, env.JWT_SECRET) : '',
   );
 
@@ -274,7 +276,7 @@ authRoutes.get('/feedback/google/callback', async c => {
   await env.DB.prepare('UPDATE reviewer_sessions SET revoked = 1 WHERE reviewer_id = ?')
     .bind(reviewer.id).run();
   const session = await issueReviewerSession(env, reviewer.id);
-  const response = relativeRedirect(returnPathWithFeedbackStatus(returnTo, 'success'));
+  const response = relativeRedirect(feedbackReturnWithStatus(returnTo, 'success'));
   return appendSetCookies(
     appendSetCookies(response, clearOauthCookies()),
     reviewerSessionCookies(session.token, session.csrf),
