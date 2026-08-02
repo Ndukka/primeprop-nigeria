@@ -21,6 +21,11 @@ type Bindings = {
   GOOGLE_REDIRECT_URI?: string;
 };
 
+type TrackedMediaAccess = {
+  tracked: boolean;
+  response: Response | null;
+};
+
 const encoder = new TextEncoder();
 const ALLOWED_APPLICATION_ORIGINS = new Set([
   'https://primeprop-worker.ndupsn.workers.dev',
@@ -150,6 +155,20 @@ function withAssetCachePolicy(path: string, response: Response): Response {
   });
 }
 
+function withTrackedMediaCachePolicy(response: Response): Response {
+  const headers = new Headers(response.headers);
+  // Tracked uploads must be revalidated so an account suspension takes effect
+  // before a previously-issued media URL can be used again. Private prevents
+  // an administrator-authorized response from entering a shared cache.
+  headers.set('Cache-Control', 'private, max-age=0, must-revalidate');
+  headers.set('Vary', 'Cookie, Authorization, Accept-Encoding');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 function isValidGoogleRedirectUri(value: string | undefined, env: Bindings): boolean {
   if (!value) return false;
 
@@ -239,6 +258,62 @@ async function isActiveAdministrator(request: Request, env: Bindings): Promise<b
   }
 }
 
+function hiddenMediaResponse(method: string): Response {
+  if (method === 'HEAD') {
+    return new Response(null, {
+      status: 404,
+      headers: {
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    });
+  }
+  return jsonResponse({ success: false, message: 'Not found' }, 404);
+}
+
+async function trackedMediaAccess(request: Request, env: Bindings): Promise<TrackedMediaAccess> {
+  const method = request.method.toUpperCase();
+  const url = new URL(request.url);
+  if ((method !== 'GET' && method !== 'HEAD') || !url.pathname.startsWith('/api/images/')) {
+    return { tracked: false, response: null };
+  }
+
+  const key = url.pathname.slice('/api/images/'.length);
+  if (!key || key.includes('..') || key.startsWith('/')) {
+    return { tracked: false, response: null };
+  }
+
+  try {
+    const owner = await env.DB.prepare(
+      `SELECT COALESCE(u.account_status, 'missing') AS account_status
+       FROM upload_objects uo
+       LEFT JOIN users u ON u.id = uo.user_id
+       WHERE uo.object_key = ?`,
+    ).bind(key).first<{ account_status: string }>();
+
+    // Preserve access to legacy R2 objects that predate ownership tracking.
+    if (!owner) return { tracked: false, response: null };
+    if (owner.account_status === 'active') return { tracked: true, response: null };
+
+    // Administrators retain access for moderation and deletion. Everyone else
+    // receives the same not-found response as an unknown media key.
+    if (await isActiveAdministrator(request, env)) {
+      return { tracked: true, response: null };
+    }
+    return { tracked: true, response: hiddenMediaResponse(method) };
+  } catch (error) {
+    console.error(JSON.stringify({
+      level: 'ERROR',
+      event: 'tracked_media_visibility_check_failed',
+      message: error instanceof Error ? error.message : 'Unknown media visibility error',
+    }));
+    return {
+      tracked: true,
+      response: jsonResponse({ success: false, message: 'Media is temporarily unavailable' }, 503),
+    };
+  }
+}
+
 async function handleStorageAudit(request: Request, env: Bindings): Promise<Response> {
   if (request.method !== 'GET') {
     const response = jsonResponse({ success: false, message: 'Method not allowed' }, 405);
@@ -270,6 +345,8 @@ export default {
     if (canonicalRedirect) return canonicalRedirect;
 
     const path = new URL(request.url).pathname;
+    const mediaAccess = await trackedMediaAccess(request, env);
+    if (mediaAccess.response) return mediaAccess.response;
 
     if (path === '/auth/security/storage-audit') {
       return handleStorageAudit(request, env);
@@ -289,7 +366,9 @@ export default {
     if (path === '/auth/google/callback') {
       response = await sanitizeOAuthError(response);
     }
-    return withAssetCachePolicy(path, response);
+    response = withAssetCachePolicy(path, response);
+    if (mediaAccess.tracked) response = withTrackedMediaCachePolicy(response);
+    return response;
   },
 };
 
