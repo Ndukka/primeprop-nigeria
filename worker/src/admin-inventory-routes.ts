@@ -21,6 +21,11 @@ type ListingContactRow = {
   phone: string | null;
 };
 
+type ListingOwnerRow = {
+  id: number;
+  created_by: number | null;
+};
+
 function districtDto(district: DistrictRow) {
   return {
     id: district.id,
@@ -35,17 +40,19 @@ function districtDto(district: DistrictRow) {
 }
 
 async function districtRows(c: any) {
-  const { results } = await c.env.DB.prepare(
+  const result = await c.env.DB.prepare(
     `SELECT id, name, city, description, checks, image, link_type, created_at
      FROM districts
      ORDER BY id ASC`,
-  ).all<DistrictRow>();
-  return (results || []).map(districtDto);
+  ).all();
+  return ((result.results || []) as DistrictRow[]).map(districtDto);
 }
 
 async function usersProjection(c: any): Promise<string> {
-  const schema = await c.env.DB.prepare('PRAGMA table_info(users)').all<SchemaColumn>();
-  const columns = new Set((schema.results || []).map(column => column.name));
+  const schema = await c.env.DB.prepare('PRAGMA table_info(users)').all();
+  const columns = new Set(
+    ((schema.results || []) as SchemaColumn[]).map((column: SchemaColumn) => column.name),
+  );
 
   const required = ['id', 'email', 'name', 'role', 'avatar_url', 'phone', 'created_at'];
   for (const column of required) {
@@ -97,7 +104,7 @@ function normalizeContactNumber(value: unknown): string {
 }
 
 async function listingContact(c: any, id: number): Promise<ListingContactRow | null> {
-  return c.env.DB.prepare(
+  const row = await c.env.DB.prepare(
     `SELECT l.title, l.location, l.price,
             CASE
               WHEN l.created_by IS NULL THEN NULLIF(l.agent_phone, '')
@@ -109,7 +116,8 @@ async function listingContact(c: any, id: number): Promise<ListingContactRow | n
        ON u.id = l.created_by
       AND COALESCE(u.account_status, 'active') = 'active'
      WHERE l.id = ?`,
-  ).bind(id).first<ListingContactRow>();
+  ).bind(id).first();
+  return row as ListingContactRow | null;
 }
 
 authRoutes.get('/district-guides', async c => {
@@ -127,10 +135,10 @@ authRoutes.get('/admin-districts', requireAuth, requireRole('admin'), async c =>
 authRoutes.get('/admin-users', requireAuth, requireRole('admin'), async c => {
   c.header('Cache-Control', 'no-store');
   const projection = await usersProjection(c);
-  const { results } = await c.env.DB.prepare(
+  const result = await c.env.DB.prepare(
     `SELECT ${projection} FROM users ORDER BY id ASC`,
   ).all();
-  const data = (results || []).map(userDto);
+  const data = (result.results || []).map(userDto);
   return c.json({ success: true, count: data.length, data });
 });
 
@@ -154,7 +162,7 @@ authRoutes.delete('/listing-records/:id', csrfProtection, requireAuth, async c =
 
   const listing = await c.env.DB.prepare(
     'SELECT id, created_by FROM listings WHERE id = ?',
-  ).bind(id).first<{ id: number; created_by: number | null }>();
+  ).bind(id).first() as ListingOwnerRow | null;
   if (!listing) return c.json({ success: false, message: 'Listing not found' }, 404);
   if (user.role !== 'admin' && listing.created_by !== user.id) {
     return c.json({ success: false, message: 'You can only delete your own listings' }, 403);
