@@ -89,4 +89,19 @@ describe('agent listing approval source safeguards', () => {
     expect(agent).toContain('Listing submitted for administrator approval.');
     expect(agent).toContain('Listing updated and returned for administrator approval.');
   });
+
+  it('hides tracked media owned by inactive users without breaking legacy objects', () => {
+    const productionEntry = source('src/production-entry.ts');
+
+    expect(productionEntry).toContain('async function trackedMediaAccess(request: Request, env: Bindings)');
+    expect(productionEntry).toContain('FROM upload_objects uo');
+    expect(productionEntry).toContain("COALESCE(u.account_status, 'missing') AS account_status");
+    expect(productionEntry).toContain("if (!owner) return { tracked: false, response: null }");
+    expect(productionEntry).toContain("if (owner.account_status === 'active')");
+    expect(productionEntry).toContain('if (await isActiveAdministrator(request, env))');
+    expect(productionEntry).toContain("headers.set('Cache-Control', 'private, max-age=0, must-revalidate')");
+    expect(productionEntry).toContain("return jsonResponse({ success: false, message: 'Not found' }, 404)");
+    expect(productionEntry).toContain('const mediaAccess = await trackedMediaAccess(request, env)');
+    expect(productionEntry).toContain('if (mediaAccess.tracked) response = withTrackedMediaCachePolicy(response)');
+  });
 });
