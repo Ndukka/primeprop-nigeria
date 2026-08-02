@@ -306,6 +306,7 @@ async function updateProfile(c: any, userId: number, body: Record<string, any>, 
 }
 
 authRoutes.get('/public-agents/:id', async c => {
+  c.header('Cache-Control', 'no-store');
   const id = sanitizePositiveInt(c.req.param('id'), 0, 1, Number.MAX_SAFE_INTEGER);
   if (!id) return c.json({ success: false, message: 'Agent not found' }, 404);
 
@@ -328,7 +329,6 @@ authRoutes.get('/public-agents/:id', async c => {
   ).bind(id).all();
   const listings = (result.results || []).map(row => rowToListing(row));
 
-  c.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
   return c.json({ success: true, data: publicProfileDto(profile, listings) });
 });
 
