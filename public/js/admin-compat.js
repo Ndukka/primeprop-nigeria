@@ -12,6 +12,77 @@
   // Upload responses intentionally use same-origin /api/images/... paths.
   window.isSafeUrl = safeManagedMediaUrl;
 
+  function setRuntimeDisplay(element, display) {
+    if (!element) return;
+    if (window.PrimePropStyles && typeof window.PrimePropStyles.set === 'function') {
+      window.PrimePropStyles.set(element, 'display', display);
+      return;
+    }
+    element.hidden = display === 'none';
+  }
+
+  function configureAddButton(button, label, handler) {
+    if (!button) return;
+    window.clearContainer(button);
+    const icon = document.createElement('i');
+    icon.className = 'fa-solid fa-plus';
+    button.append(icon, document.createTextNode(` ${label}`));
+    if (window.PrimePropEvents && typeof window.PrimePropEvents.replace === 'function') {
+      window.PrimePropEvents.replace(button, 'click', handler);
+    } else {
+      button.addEventListener('click', handler, { once: true });
+    }
+  }
+
+  // The strict public build converts the source display:none attributes on the
+  // Districts and Users wrappers into permanent generated CSS classes. Setting
+  // display to an empty string cannot override those classes. Use explicit
+  // runtime display values so the selected table is always visible.
+  window.switchTab = function switchTab(tab) {
+    const selected = ['listings', 'districts', 'users'].includes(tab) ? tab : 'listings';
+    activeTab = selected;
+
+    const tabListings = document.getElementById('tabListings');
+    const tabDistricts = document.getElementById('tabDistricts');
+    const tabUsers = document.getElementById('tabUsers');
+    const listingsTableWrap = document.getElementById('listingsTableWrap');
+    const districtsTableWrap = document.getElementById('districtsTableWrap');
+    const usersTableWrap = document.getElementById('usersTableWrap');
+    const listingsToolbar = document.getElementById('listingsToolbar');
+    const addButton = document.getElementById('addButton');
+
+    for (const button of [tabListings, tabDistricts, tabUsers]) {
+      if (!button) continue;
+      button.classList.remove('tab-active');
+      button.classList.add('btn-outline');
+    }
+
+    const activeButton = selected === 'districts'
+      ? tabDistricts
+      : selected === 'users'
+        ? tabUsers
+        : tabListings;
+    activeButton?.classList.add('tab-active');
+    activeButton?.classList.remove('btn-outline');
+
+    setRuntimeDisplay(listingsTableWrap, selected === 'listings' ? 'block' : 'none');
+    setRuntimeDisplay(districtsTableWrap, selected === 'districts' ? 'block' : 'none');
+    setRuntimeDisplay(usersTableWrap, selected === 'users' ? 'block' : 'none');
+    setRuntimeDisplay(listingsToolbar, selected === 'listings' ? 'flex' : 'none');
+
+    if (selected === 'districts') {
+      configureAddButton(addButton, 'Add District', window.openDistrictModal);
+      window.loadDistrictsData();
+      return;
+    }
+    if (selected === 'users') {
+      configureAddButton(addButton, 'Add User', window.openUserModal);
+      window.loadUsersData();
+      return;
+    }
+    configureAddButton(addButton, 'Add Listing', window.openAddModal);
+  };
+
   const roleSelect = document.getElementById('userFormRole');
   const unsupportedUserRole = roleSelect?.querySelector('option[value="user"]');
   if (unsupportedUserRole) unsupportedUserRole.remove();
@@ -101,4 +172,6 @@
   window.unbanUser = function unbanUser(id) {
     return setAccountStatus(id, 'active', 'User unbanned.');
   };
+
+  window.switchTab(typeof activeTab === 'string' ? activeTab : 'listings');
 })();

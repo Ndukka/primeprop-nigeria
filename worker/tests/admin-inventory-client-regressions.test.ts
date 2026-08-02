@@ -74,6 +74,37 @@ describe('administrator inventory browser regressions', () => {
     expect(compat).toContain("body: JSON.stringify({ account_status: accountStatus })");
     expect(compat).toContain('await window.loadUsersData()');
   });
+
+  it('overrides compiled hidden table classes with explicit display values', () => {
+    const compat = generatedSource('js/admin-compat.js');
+
+    expect(compat).toContain('window.switchTab = function switchTab(tab)');
+    expect(compat).toContain("setRuntimeDisplay(listingsTableWrap, selected === 'listings' ? 'block' : 'none')");
+    expect(compat).toContain("setRuntimeDisplay(districtsTableWrap, selected === 'districts' ? 'block' : 'none')");
+    expect(compat).toContain("setRuntimeDisplay(usersTableWrap, selected === 'users' ? 'block' : 'none')");
+    expect(compat).toContain("setRuntimeDisplay(listingsToolbar, selected === 'listings' ? 'flex' : 'none')");
+    expect(compat).not.toContain("setRuntimeDisplay(districtsTableWrap, '')");
+    expect(compat).not.toContain("setRuntimeDisplay(usersTableWrap, '')");
+  });
+
+  it('keeps manual media URLs hidden while preserving stored legacy values', () => {
+    const client = generatedSource('js/client-data.js');
+
+    for (const id of [
+      'formImages',
+      'districtFormImage',
+      'formAgentAvatar',
+      'userFormAvatar',
+      'profileAvatar',
+    ]) {
+      expect(client).toContain(`'${id}'`);
+    }
+    expect(client).toContain("field.dataset.ppUploadOnly = 'true'");
+    expect(client).toContain('field.hidden = true');
+    expect(client).toContain('field.readOnly = true');
+    expect(client).toContain('new MutationObserver(() => applyUploadOnlyMediaPolicy())');
+    expect(client).not.toContain("field.value = ''");
+  });
 });
 
 describe('public and agent data-action regressions', () => {
