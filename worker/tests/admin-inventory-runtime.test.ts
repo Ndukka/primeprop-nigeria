@@ -4,6 +4,11 @@ import { env, exports } from 'cloudflare:workers';
 const BASE = 'https://primeprop-worker.ndupsn.workers.dev';
 const testEnv = env as unknown as { DB: D1Database };
 
+type LoginSession = {
+  cookies: string;
+  csrf: string;
+};
+
 function getSetCookieValues(headers: Headers): string[] {
   const compatible = headers as Headers & { getSetCookie?: () => string[] };
   if (typeof compatible.getSetCookie === 'function') return compatible.getSetCookie();
@@ -19,17 +24,30 @@ async function workerFetch(path: string, init: RequestInit = {}): Promise<Respon
   return exports.default.fetch(new Request(`${BASE}${path}`, init));
 }
 
-async function adminCookies(): Promise<string> {
+async function loginSession(email: string, password: string): Promise<LoginSession> {
   const response = await workerFetch('/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email: 'test-admin@primeprop.invalid',
-      password: 'TestAdmin123!',
-    }),
+    body: JSON.stringify({ email, password }),
   });
   expect(response.status).toBe(200);
-  return cookieHeader(getSetCookieValues(response.headers));
+  const body = await response.clone().json() as { data: { csrf: string } };
+  return {
+    cookies: cookieHeader(getSetCookieValues(response.headers)),
+    csrf: body.data.csrf,
+  };
+}
+
+async function adminCookies(): Promise<string> {
+  return (await loginSession('test-admin@primeprop.invalid', 'TestAdmin123!')).cookies;
+}
+
+function mutationHeaders(session: LoginSession): HeadersInit {
+  return {
+    Cookie: session.cookies,
+    Origin: BASE,
+    'X-CSRF-Token': session.csrf,
+  };
 }
 
 describe.sequential('stable administrator inventories', () => {
@@ -178,5 +196,50 @@ describe.sequential('public listing contact redirects', () => {
     ]);
     expect(invalid.status).toBe(400);
     expect(missing.status).toBe(404);
+  });
+});
+
+describe.sequential('ownership-aware listing deletion', () => {
+  it('lets an agent delete only their own listing', async () => {
+    const agent = await loginSession('test-agent@primeprop.invalid', 'TestAgent123!');
+    const owned = await testEnv.DB.prepare(
+      `INSERT INTO listings
+       (title, type, property_type, price, location, city, created_by)
+       VALUES (?, 'rent', 'apartment', 1000000, 'Delete Test', 'Lagos', 2)`,
+    ).bind(`Agent-owned delete ${crypto.randomUUID()}`).run();
+    const ownedId = Number(owned.meta.last_row_id);
+
+    const response = await workerFetch(`/auth/listing-records/${ownedId}`, {
+      method: 'DELETE',
+      headers: mutationHeaders(agent),
+    });
+    expect(response.status).toBe(200);
+    expect(await testEnv.DB.prepare('SELECT id FROM listings WHERE id = ?').bind(ownedId).first()).toBeNull();
+  });
+
+  it('rejects deletion of another account’s listing', async () => {
+    const agent = await loginSession('test-agent@primeprop.invalid', 'TestAgent123!');
+    const other = await testEnv.DB.prepare(
+      `INSERT INTO listings
+       (title, type, property_type, price, location, city, created_by)
+       VALUES (?, 'sale', 'duplex', 5000000, 'Protected Delete Test', 'Lagos', 1)`,
+    ).bind(`Admin-owned delete ${crypto.randomUUID()}`).run();
+    const otherId = Number(other.meta.last_row_id);
+
+    try {
+      const response = await workerFetch(`/auth/listing-records/${otherId}`, {
+        method: 'DELETE',
+        headers: mutationHeaders(agent),
+      });
+      expect(response.status).toBe(403);
+      expect(await testEnv.DB.prepare('SELECT id FROM listings WHERE id = ?').bind(otherId).first()).not.toBeNull();
+    } finally {
+      await testEnv.DB.prepare('DELETE FROM listings WHERE id = ?').bind(otherId).run();
+    }
+  });
+
+  it('requires an authenticated session and matching CSRF token', async () => {
+    const response = await workerFetch('/auth/listing-records/1', { method: 'DELETE' });
+    expect([401, 403]).toContain(response.status);
   });
 });
