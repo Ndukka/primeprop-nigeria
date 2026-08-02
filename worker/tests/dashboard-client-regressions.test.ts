@@ -92,11 +92,13 @@ describe('dashboard database, profile, and session regressions', () => {
     const admin = generatedSource('js/admin-data.js');
     const agent = generatedSource('js/agent-data.js');
 
-    for (const source of [admin, agent]) {
-      expect(source).toContain("return '/auth/listing-records'");
-      expect(source).toContain("'/auth/listing-records/'");
-      expect(source).toContain('roleAwareListingUrl');
-    }
+    expect(admin).toContain("return '/auth/listing-records'");
+    expect(admin).toContain("'/auth/listing-records/'");
+    expect(admin).toContain('roleAwareListingUrl');
+    expect(agent).toContain("return '/auth/listing-records'");
+    expect(agent).toContain("'/auth/listing-records/'");
+    expect(agent).toContain('roleAwareListingUrl');
+    expect(agent).toContain("['PUT', 'DELETE'].includes(method)");
   });
 
   it('moves agent identity into one saved profile and disables listing overrides', () => {
@@ -149,12 +151,13 @@ describe('dashboard database, profile, and session regressions', () => {
     expect(app).toContain("String(activeBedrooms).endsWith('+')");
   });
 
-  it('replaces retired dummy contact actions without exposing private phone data', () => {
+  it('repairs retired contact actions without exposing private phone data', () => {
     const catalogue = generatedSource('js/catalog-data.js');
 
     expect(catalogue).toContain("const RETIRED_CONTACT = '2348000000000'");
-    expect(catalogue).toContain('neutralizeRetiredContacts');
+    expect(catalogue).toContain('applyContactRoutes');
+    expect(catalogue).toContain('/auth/listing-contact/${encodeURIComponent(id)}/whatsapp');
+    expect(catalogue).toContain('/auth/listing-contact/${encodeURIComponent(id)}/call');
     expect(catalogue).toContain("label.textContent = 'Contact unavailable'");
-    expect(catalogue).toContain('anchor.replaceWith(unavailableContactLabel())');
   });
 });
