@@ -1,4 +1,4 @@
-import { authRoutes, requireAuth, requireRole } from './auth';
+import { authRoutes, csrfProtection, requireAuth, requireRole } from './auth';
 import { safeJsonParse, sanitizePositiveInt } from './utils';
 
 type SchemaColumn = { name: string };
@@ -130,6 +130,23 @@ authRoutes.get('/admin-users', requireAuth, requireRole('admin'), async c => {
   }));
 
   return c.json({ success: true, count: data.length, data });
+});
+
+authRoutes.delete('/listing-records/:id', csrfProtection, requireAuth, async c => {
+  const user = c.get('user');
+  const id = sanitizePositiveInt(c.req.param('id'), 0, 1, Number.MAX_SAFE_INTEGER);
+  if (!id) return c.json({ success: false, message: 'Invalid listing ID' }, 400);
+
+  const listing = await c.env.DB.prepare(
+    'SELECT id, created_by FROM listings WHERE id = ?',
+  ).bind(id).first<{ id: number; created_by: number | null }>();
+  if (!listing) return c.json({ success: false, message: 'Listing not found' }, 404);
+  if (user.role !== 'admin' && listing.created_by !== user.id) {
+    return c.json({ success: false, message: 'You can only delete your own listings' }, 403);
+  }
+
+  await c.env.DB.prepare('DELETE FROM listings WHERE id = ?').bind(id).run();
+  return c.json({ success: true, message: 'Listing deleted' });
 });
 
 authRoutes.get('/listing-contact/:id/whatsapp', async c => {
