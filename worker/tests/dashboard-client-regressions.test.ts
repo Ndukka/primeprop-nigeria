@@ -61,6 +61,8 @@ describe('dashboard database, profile, and session regressions', () => {
     expect(admin).toContain('client.fetchAllAdminListings');
     expect(admin).toContain('filteredAdminListings');
     expect(admin).toContain('No listings match the selected filters.');
+    expect(admin).toContain("client.requestJson('/auth/admin-districts'");
+    expect(admin).toContain("client.requestJson('/auth/admin-users'");
     expect(catalogue).toContain('client.fetchAllListings(filters)');
   });
 
@@ -73,7 +75,8 @@ describe('dashboard database, profile, and session regressions', () => {
     expect(admin).toMatch(/client\.renderTableError\(\s*['"]districtsTableBody['"]/);
     expect(admin).toMatch(/client\.renderTableError\(\s*['"]usersTableBody['"]/);
     expect(agent).toMatch(/client\.renderTableError\(\s*['"]tableBody['"]/);
-    expect(admin).toContain("district.link_type || 'all'");
+    expect(admin).toContain('No districts are stored in the database.');
+    expect(admin).toContain('No users are stored in the database.');
   });
 
   it('normalizes listing DTO fields for the agent editor', () => {
