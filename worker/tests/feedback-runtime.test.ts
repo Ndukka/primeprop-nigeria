@@ -265,10 +265,11 @@ describe('Google reviewer feedback boundaries', () => {
           targetType: 'agent',
           targetId: 2,
           reasonCode: 'other',
-          details: 'This submission should be blocked because the reviewer is banned.',
+          details: 'This submission should be blocked because the reviewer session was revoked by the ban.',
         },
       ));
-      expect(blockedWhileBanned.status).toBe(403);
+      expect(blockedWhileBanned.status).toBe(401);
+      expect((await blockedWhileBanned.json() as any).message).toContain('Continue with Google');
 
       const ban = await testEnv.DB.prepare(
         `SELECT id FROM reviewer_bans
