@@ -2,6 +2,8 @@
 (() => {
   'use strict';
 
+  const client = window.PrimePropClient;
+
   function safeManagedMediaUrl(value) {
     return typeof value === 'string'
       && (value.startsWith('https://') || value.startsWith('/api/images/'));
@@ -39,4 +41,32 @@
       if (roleSelect) roleSelect.value = 'agent';
     };
   }
+
+  async function setAccountStatus(id, accountStatus, successMessage) {
+    if (!client) throw new Error('PrimePropClient is unavailable.');
+    window.showLoading(true);
+    try {
+      await client.requestJson(`/auth/users/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_status: accountStatus }),
+      }, window.apiFetch);
+      window.showToast(successMessage, 'success');
+      await window.loadUsersData();
+    } catch (error) {
+      console.error(error);
+      window.showToast(error.message || 'The account status could not be changed.', 'error');
+    } finally {
+      window.showLoading(false);
+    }
+  }
+
+  window.banUser = function banUser(id, name) {
+    if (!window.confirm(`Ban user "${name}"? They will not be able to log in.`)) return;
+    return setAccountStatus(id, 'banned', 'User banned.');
+  };
+
+  window.unbanUser = function unbanUser(id) {
+    return setAccountStatus(id, 'active', 'User unbanned.');
+  };
 })();
