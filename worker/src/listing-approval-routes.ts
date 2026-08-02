@@ -29,8 +29,8 @@ function approvedListingWhere(query: Record<string, string>) {
     parameters.push(sanitizeString(query.city, 100));
   }
   if (query.area) {
-    clauses.push('area LIKE ?');
-    parameters.push(`%${sanitizeString(query.area, 100)}%`);
+    clauses.push("instr(lower(COALESCE(area, '')), lower(?)) > 0");
+    parameters.push(sanitizeString(query.area, 100));
   }
   if (query.minPrice) {
     clauses.push('price >= ?');
@@ -48,9 +48,15 @@ function approvedListingWhere(query: Record<string, string>) {
   if (query.verified === 'true') clauses.push('verified = 1');
 
   if (query.search) {
-    const like = `%${sanitizeString(query.search, 200)}%`;
-    clauses.push('(title LIKE ? OR location LIKE ? OR area LIKE ? OR city LIKE ? OR description LIKE ?)');
-    parameters.push(like, like, like, like, like);
+    const search = sanitizeString(query.search, 200);
+    clauses.push(
+      "(instr(lower(COALESCE(title, '')), lower(?)) > 0"
+      + " OR instr(lower(COALESCE(location, '')), lower(?)) > 0"
+      + " OR instr(lower(COALESCE(area, '')), lower(?)) > 0"
+      + " OR instr(lower(COALESCE(city, '')), lower(?)) > 0"
+      + " OR instr(lower(COALESCE(description, '')), lower(?)) > 0)",
+    );
+    parameters.push(search, search, search, search, search);
   }
 
   return {
