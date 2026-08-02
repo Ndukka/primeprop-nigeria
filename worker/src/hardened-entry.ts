@@ -37,6 +37,22 @@ type ActiveUser = {
   security_stamp_changed_at: number;
 };
 
+type RefreshSession = {
+  id: number;
+  user_id: number;
+  token_family: string;
+  revoked: number;
+  expires_at: number;
+  rotated_at: string | null;
+  user_agent: string | null;
+  ip_address: string | null;
+  email: string;
+  name: string;
+  role: string;
+  account_status: string;
+  security_stamp_changed_at: number;
+};
+
 type PreparedRequest = {
   request: Request;
   setCookies: string[];
@@ -45,6 +61,7 @@ type PreparedRequest = {
 const encoder = new TextEncoder();
 const ACCESS_SECONDS = 15 * 60;
 const REFRESH_SECONDS = 7 * 24 * 60 * 60;
+const REFRESH_REUSE_GRACE_MS = 15 * 1000;
 const COOKIE_OPTS = 'Path=/; HttpOnly; Secure; SameSite=Lax';
 const CSRF_COOKIE_OPTS = 'Path=/; Secure; SameSite=Lax';
 
@@ -146,9 +163,13 @@ function configuredResetBaseUrl(env: Bindings): URL | null {
   }
 }
 
+function accessCookie(accessToken: string): string {
+  return `pp_session=${accessToken}; ${COOKIE_OPTS}; Max-Age=${ACCESS_SECONDS}`;
+}
+
 function authCookies(accessToken: string, refreshToken: string, csrfToken: string): string[] {
   return [
-    `pp_session=${accessToken}; ${COOKIE_OPTS}; Max-Age=${ACCESS_SECONDS}`,
+    accessCookie(accessToken),
     `pp_refresh=${refreshToken}; ${COOKIE_OPTS}; Max-Age=${REFRESH_SECONDS}`,
     `pp_csrf=${csrfToken}; ${CSRF_COOKIE_OPTS}; Max-Age=${REFRESH_SECONDS}`,
   ];
@@ -191,6 +212,44 @@ function replaceAuthenticationCookies(request: Request, access: string, refresh:
   retained.push(`pp_session=${access}`, `pp_refresh=${refresh}`, `pp_csrf=${csrf}`);
   headers.set('Cookie', retained.join('; '));
   return new Request(request, { headers });
+}
+
+function replaceAccessCookie(request: Request, access: string): Request {
+  const headers = new Headers(request.headers);
+  const retained = (headers.get('Cookie') || '')
+    .split(';')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .filter(part => !part.startsWith('pp_session='));
+
+  retained.push(`pp_session=${access}`);
+  headers.set('Cookie', retained.join('; '));
+  return new Request(request, { headers });
+}
+
+function requestFingerprint(request: Request): { ip: string; userAgent: string } {
+  return {
+    ip: request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || '',
+    userAgent: (request.headers.get('User-Agent') || '').slice(0, 500),
+  };
+}
+
+function sqliteTimestampMs(value: string | null): number {
+  if (!value) return 0;
+  const normalized = /(?:Z|[+-]\d\d:\d\d)$/.test(value) ? value : `${value.replace(' ', 'T')}Z`;
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isRecentSameClientRotation(request: Request, session: RefreshSession): boolean {
+  const rotatedAt = sqliteTimestampMs(session.rotated_at);
+  const age = Date.now() - rotatedAt;
+  if (rotatedAt === 0 || age < 0 || age > REFRESH_REUSE_GRACE_MS) return false;
+
+  const fingerprint = requestFingerprint(request);
+  const ipMatches = !session.ip_address || session.ip_address === fingerprint.ip;
+  const userAgentMatches = !session.user_agent || session.user_agent === fingerprint.userAgent;
+  return ipMatches && userAgentMatches;
 }
 
 async function createJwt(
@@ -263,33 +322,15 @@ async function rotateRefreshToken(request: Request, refreshToken: string, env: B
   const tokenHash = await sha256Hex(refreshToken);
   const session = await env.DB.prepare(
     `SELECT s.id, s.user_id, s.token_family, s.revoked, s.expires_at,
+            s.rotated_at, s.user_agent, s.ip_address,
             u.email, u.name, u.role, u.account_status,
             COALESCE(u.security_stamp_changed_at, 0) AS security_stamp_changed_at
      FROM sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = ?`
-  ).bind(tokenHash).first<{
-    id: number;
-    user_id: number;
-    token_family: string;
-    revoked: number;
-    expires_at: number;
-    email: string;
-    name: string;
-    role: string;
-    account_status: string;
-    security_stamp_changed_at: number;
-  }>();
+  ).bind(tokenHash).first<RefreshSession>();
 
   if (!session) return unauthorized();
-
-  if (session.revoked === 1) {
-    await env.DB.batch([
-      env.DB.prepare('UPDATE sessions SET revoked = 1 WHERE token_family = ?').bind(session.token_family),
-      env.DB.prepare('UPDATE users SET security_stamp = ? WHERE id = ?').bind(crypto.randomUUID(), session.user_id),
-    ]);
-    return unauthorized('Session reuse was detected. Please sign in again.');
-  }
 
   const user: ActiveUser = {
     id: session.user_id,
@@ -310,12 +351,27 @@ async function rotateRefreshToken(request: Request, refreshToken: string, env: B
     return unauthorized();
   }
 
+  if (session.revoked === 1) {
+    if (isRecentSameClientRotation(request, session)) {
+      const access = await createJwt(user, env.JWT_SECRET, 'access', ACCESS_SECONDS);
+      return {
+        request: replaceAccessCookie(request, access.token),
+        setCookies: [accessCookie(access.token)],
+      };
+    }
+
+    await env.DB.batch([
+      env.DB.prepare('UPDATE sessions SET revoked = 1 WHERE token_family = ?').bind(session.token_family),
+      env.DB.prepare('UPDATE users SET security_stamp = ? WHERE id = ?').bind(crypto.randomUUID(), session.user_id),
+    ]);
+    return unauthorized('Session reuse was detected. Please sign in again.');
+  }
+
   const access = await createJwt(user, env.JWT_SECRET, 'access', ACCESS_SECONDS);
   const refresh = await createJwt(user, env.JWT_SECRET, 'refresh', REFRESH_SECONDS);
   const newHash = await sha256Hex(refresh.token);
   const expiresAt = Date.now() + REFRESH_SECONDS * 1000;
-  const ip = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || '';
-  const userAgent = (request.headers.get('User-Agent') || '').slice(0, 500);
+  const fingerprint = requestFingerprint(request);
 
   await env.DB.batch([
     env.DB.prepare('UPDATE sessions SET revoked = 1, rotated_at = datetime(\'now\') WHERE id = ?')
@@ -324,7 +380,7 @@ async function rotateRefreshToken(request: Request, refreshToken: string, env: B
       `INSERT INTO sessions
        (user_id, token_hash, token_family, token_jti, user_agent, ip_address, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).bind(user.id, newHash, session.token_family, refresh.jti, userAgent, ip, expiresAt),
+    ).bind(user.id, newHash, session.token_family, refresh.jti, fingerprint.userAgent, fingerprint.ip, expiresAt),
   ]);
 
   const csrf = randomToken();
