@@ -263,10 +263,93 @@
     }
   }
 
+  function evidenceLine(label, value) {
+    const row = element('div');
+    row.style.display = 'grid';
+    row.style.gridTemplateColumns = 'minmax(150px, 34%) 1fr';
+    row.style.gap = '12px';
+    row.style.padding = '9px 0';
+    row.style.borderBottom = '1px solid #e2e8f0';
+    const term = element('strong', label);
+    term.style.color = '#334155';
+    const detail = element('span', value == null || value === '' ? '—' : String(value));
+    detail.style.overflowWrap = 'anywhere';
+    row.append(term, detail);
+    return row;
+  }
+
+  function evidenceHeading(text) {
+    const heading = element('h3', text);
+    heading.style.margin = '20px 0 4px';
+    heading.style.fontSize = '1rem';
+    return heading;
+  }
+
+  async function viewReportEvidence(id) {
+    const result = await request(`/auth/feedback/admin/reports/${encodeURIComponent(id)}/evidence`);
+    const data = result.data;
+    const modal = ui.openDialog(`Report ${data.publicId || data.id}`);
+    modal.body.append(
+      evidenceHeading('Verified reporter'),
+      evidenceLine('Google email at submission', data.reporter?.googleEmail),
+      evidenceLine('Current Google email', data.reporter?.currentGoogleEmail),
+      evidenceLine('Email verified', data.reporter?.emailVerified ? 'Yes' : 'No'),
+      evidenceLine('First authenticated', displayDate(data.reporter?.firstAuthenticatedAt)),
+      evidenceLine('Last authenticated', displayDate(data.reporter?.lastAuthenticatedAt)),
+      evidenceHeading('Private network evidence'),
+      evidenceLine('IP address', data.networkEvidence?.ipAddress),
+      evidenceLine('Country', data.networkEvidence?.country),
+      evidenceLine('Browser signature', data.networkEvidence?.userAgent),
+      evidenceLine('Cloudflare request ID', data.networkEvidence?.requestId),
+      evidenceLine(
+        'Evidence retention',
+        data.networkEvidence?.retained
+          ? data.networkEvidence?.expiresAt
+            ? `Exact evidence expires ${displayDate(data.networkEvidence.expiresAt)}`
+            : 'Retained while this case remains open'
+          : 'Exact network evidence has expired and was deleted',
+      ),
+    );
+    if (data.listing) {
+      modal.body.append(
+        evidenceHeading('Reported listing'),
+        evidenceLine('Listing', data.listing.title || data.listing.id),
+        evidenceLine('Public state', data.listing.approvalStatus),
+        evidenceLine('Owner name', data.listing.ownerName),
+        evidenceLine('Owner email', data.listing.ownerEmail),
+        evidenceLine('Moderation action', data.listing.action),
+        evidenceLine('Actioned at', displayDate(data.listing.actionedAt)),
+        evidenceLine('Actioned by', data.listing.actionedByEmail || data.listing.actionedByName),
+      );
+    }
+    if (data.handledBy) {
+      modal.body.append(
+        evidenceHeading('Case handling'),
+        evidenceLine('Handled by', data.handledBy.email || data.handledBy.name),
+        evidenceLine('Resolution note', data.resolutionNote),
+      );
+    }
+    const close = button('Close', 'btn btn-primary');
+    close.addEventListener('click', () => modal.dialog.close());
+    modal.footer.appendChild(close);
+  }
+
   async function moderateReport(id, action) {
-    const note = window.prompt('Resolution or investigation note:', '') ?? null;
+    const promptText = action === 'investigate'
+      ? 'Optional investigation note:'
+      : action === 'take_down_listing'
+        ? 'Required takedown reason (at least 10 characters):'
+        : 'Required resolution note (at least 10 characters):';
+    const note = window.prompt(promptText, '') ?? null;
     if (note === null) return;
-    const result = await request(`/auth/feedback/admin/reports/${encodeURIComponent(id)}`, {
+    if (action !== 'investigate' && note.trim().length < 10) {
+      ui.showNotice('A factual moderation note of at least 10 characters is required.', 'error');
+      return;
+    }
+    if (action === 'take_down_listing' && !window.confirm(
+      'Remove this listing from the public catalogue? The listing record will be retained and can later be re-approved from the Listings tab.',
+    )) return;
+    const result = await request(`/auth/feedback/admin/report-cases/${encodeURIComponent(id)}`, {
       method: 'PUT',
       body: JSON.stringify({ action, note }),
     });
@@ -289,6 +372,21 @@
     return node;
   }
 
+  function evidenceAction(id) {
+    const node = button('Reporter details', 'btn btn-outline btn-xs');
+    node.addEventListener('click', async () => {
+      node.disabled = true;
+      try {
+        await viewReportEvidence(id);
+      } catch (error) {
+        ui.showNotice(error.message || 'Reporter details could not be loaded.', 'error');
+      } finally {
+        node.disabled = false;
+      }
+    });
+    return node;
+  }
+
   async function loadReports() {
     renderLoading('Loading reports…');
     try {
@@ -300,7 +398,12 @@
       ]);
       for (const report of result.data || []) {
         const row = element('tr');
-        row.appendChild(cell(report.email_normalized));
+        const reporter = cell();
+        reporter.append(
+          element('div', report.email_normalized || 'Verified Google reviewer'),
+          element('small', 'Verified Google account'),
+        );
+        row.appendChild(reporter);
         const target = cell();
         const isListing = report.target_type === 'listing';
         const targetId = isListing ? report.listing_id : report.agent_id;
@@ -326,10 +429,16 @@
         row.appendChild(cell(displayDate(report.submitted_at)));
         const action = actionsCell();
         action.actions.append(
+          evidenceAction(report.id),
           reportAction('Investigate', 'investigate', report.id),
           reportAction('Resolve', 'resolve', report.id, 'btn btn-success btn-xs'),
-          reportAction('Dismiss', 'dismiss', report.id, 'btn btn-danger btn-xs'),
+          reportAction('Dismiss', 'dismiss', report.id),
         );
+        if (isListing && report.listing_id) {
+          action.actions.appendChild(
+            reportAction('Take down listing', 'take_down_listing', report.id, 'btn btn-danger btn-xs'),
+          );
+        }
         row.appendChild(action.td);
         body.appendChild(row);
       }
@@ -475,7 +584,7 @@
     const copy = element('div');
     copy.append(
       element('h2', 'Ratings, reports and reviewer moderation'),
-      element('p', 'Approve public ratings and comments separately, investigate reports, and manage Google reviewer email bans.'),
+      element('p', 'Review verified Google reporter details, investigate reports, take down unsafe listings without deleting them, and manage reviewer email bans.'),
     );
     const tabs = element('div');
     tabs.style.display = 'flex';
