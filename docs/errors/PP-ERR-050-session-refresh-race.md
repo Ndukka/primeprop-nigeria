@@ -12,7 +12,7 @@ Administrators and agents could be returned to the login page even though their 
 
 The first request rotated the refresh token and marked the previous session row as revoked. A second request from the same browser could still carry that previous refresh cookie before the browser processed the first response. The reuse detector treated this ordinary concurrency window as theft, revoked the complete token family, cleared authentication cookies, and forced a new login.
 
-The first CI run exposed a related invalidation defect: strict replay changed `security_stamp` but did not advance `security_stamp_changed_at`. Because access-token validation reads the timestamp, an already-issued access token could remain usable after the refresh family had been revoked.
+The first CI run exposed a related invalidation defect: strict replay changed `security_stamp`, but the original database trigger stored `security_stamp_changed_at` only to whole-second precision. Because access JWT `iat` values also have second precision and validation uses a strict earlier-than comparison, a stamp changed in the same second as token issuance could leave that access token usable after its refresh family had been revoked.
 
 ## Resolution
 
@@ -23,7 +23,7 @@ The active hardened Worker entrypoint now distinguishes a just-rotated refresh r
 - it does not revoke the token family or clear browser authentication;
 - delayed or different-client reuse still revokes the family and returns `401`.
 
-Migration `0020_security_stamp_invalidation_timestamp.sql` adds a database trigger that advances `security_stamp_changed_at` whenever `security_stamp` changes. This keeps access-token invalidation synchronized across replay detection, password reset, account deletion, and other global session-revocation paths.
+Migration `0020_security_stamp_invalidation_timestamp.sql` drops and recreates the established `trg_security_stamp_timestamp` trigger with millisecond precision. It does not stack a second competing trigger. This keeps access-token invalidation synchronized across replay detection, password reset, account deletion, and other global session-revocation paths, including changes made during the token's issuance second.
 
 ## Regression coverage
 
