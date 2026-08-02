@@ -45,9 +45,12 @@ describe('session refresh race source contract', () => {
     expect(hardened).toContain("UPDATE users SET security_stamp = ? WHERE id = ?");
   });
 
-  it('advances the access-token invalidation timestamp for every security-stamp change', () => {
+  it('replaces the old trigger with one millisecond invalidation authority', () => {
     const migration = readFileSync(INVALIDATION_MIGRATION, 'utf-8');
 
+    expect(migration).toContain('DROP TRIGGER IF EXISTS trg_security_stamp_timestamp;');
+    expect(migration).toContain('CREATE TRIGGER trg_security_stamp_timestamp');
+    expect(migration).not.toContain('trg_security_stamp_invalidation_timestamp');
     expect(migration).toContain('AFTER UPDATE OF security_stamp ON users');
     expect(migration).toContain('WHEN NEW.security_stamp IS NOT OLD.security_stamp');
     expect(migration).toContain('SET security_stamp_changed_at =');
