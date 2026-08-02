@@ -157,12 +157,19 @@ function injectClientRuntimes(source, relativePath) {
     count += 1;
   }
 
-  if (relativePath === 'public/admin.html' && !prepared.includes('js/admin-data.js')) {
-    prepared = prepared.replace(
-      /<\/body>/i,
-      '  <script src="js/admin-data.js"></script>\n</body>',
-    );
-    count += 1;
+  if (relativePath === 'public/admin.html') {
+    const scripts = [];
+    if (!prepared.includes('js/admin-data.js')) {
+      scripts.push('  <script src="js/admin-data.js"></script>');
+      count += 1;
+    }
+    if (!prepared.includes('js/admin-compat.js')) {
+      scripts.push('  <script src="js/admin-compat.js"></script>');
+      count += 1;
+    }
+    if (scripts.length > 0) {
+      prepared = prepared.replace(/<\/body>/i, `${scripts.join('\n')}\n</body>`);
+    }
   }
 
   if (relativePath === 'public/agent.html' && !prepared.includes('js/agent-data.js')) {

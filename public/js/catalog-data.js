@@ -14,6 +14,15 @@
     return JSON.stringify(Object.entries(filters || {}).sort(([a], [b]) => a.localeCompare(b)));
   }
 
+  function htmlEscape(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function unavailableContactLabel() {
     const label = document.createElement('span');
     label.className = 'btn btn-outline btn-sm';
@@ -22,14 +31,107 @@
     return label;
   }
 
-  function neutralizeRetiredContacts(root) {
-    if (!(root instanceof Document || root instanceof DocumentFragment || root instanceof Element)) return;
-    const anchors = [];
-    if (root instanceof HTMLAnchorElement && (root.getAttribute('href') || '').includes(RETIRED_CONTACT)) {
-      anchors.push(root);
+  function listingIdFromLink(anchor) {
+    if (!(anchor instanceof HTMLAnchorElement)) return '';
+    try {
+      const url = new URL(anchor.href, window.location.href);
+      if (!/\/listing-detail(?:\.html)?$/.test(url.pathname)) return '';
+      return /^\d+$/.test(url.searchParams.get('id') || '') ? url.searchParams.get('id') : '';
+    } catch {
+      return '';
     }
-    root.querySelectorAll(`a[href*="${RETIRED_CONTACT}"]`).forEach(anchor => anchors.push(anchor));
-    for (const anchor of anchors) anchor.replaceWith(unavailableContactLabel());
+  }
+
+  function listingIdForNode(node) {
+    if (!(node instanceof Element)) return '';
+    const card = node.closest('.property-card');
+    if (card) {
+      for (const anchor of card.querySelectorAll('a[href*="listing-detail"]')) {
+        const id = listingIdFromLink(anchor);
+        if (id) return id;
+      }
+    }
+    const queryId = new URL(window.location.href).searchParams.get('id') || '';
+    return /^\d+$/.test(queryId) ? queryId : '';
+  }
+
+  async function hydrateCallLink(anchor, id) {
+    if (!(anchor instanceof HTMLAnchorElement) || anchor.dataset.ppCallState) return;
+    anchor.dataset.ppCallState = 'loading';
+    anchor.href = '#';
+    anchor.setAttribute('aria-disabled', 'true');
+
+    try {
+      const body = await client.requestJson(`/auth/listing-contact/${encodeURIComponent(id)}/call`);
+      const callUrl = String(body.data?.callUrl || '');
+      if (!/^tel:\+\d{10,15}$/.test(callUrl)) {
+        throw new Error('The agent phone number is invalid.');
+      }
+      anchor.href = callUrl;
+      anchor.removeAttribute('aria-disabled');
+      anchor.dataset.ppCallState = 'ready';
+    } catch (error) {
+      console.error('Listing call contact failed:', error);
+      anchor.replaceWith(unavailableContactLabel());
+    }
+  }
+
+  function applyContactRoutes(root, explicitListingIds = []) {
+    if (!(root instanceof Document || root instanceof DocumentFragment || root instanceof Element)) return;
+
+    const cards = root instanceof Element && root.matches('.property-card')
+      ? [root]
+      : Array.from(root.querySelectorAll('.property-card'));
+    cards.forEach((card, index) => {
+      const fallback = listingIdForNode(card);
+      const id = String(explicitListingIds[index] || fallback || '');
+      if (!/^\d+$/.test(id)) return;
+      const whatsapp = card.querySelector('a.btn-whatsapp');
+      if (whatsapp) {
+        whatsapp.href = `/auth/listing-contact/${encodeURIComponent(id)}/whatsapp`;
+        whatsapp.target = '_blank';
+        whatsapp.rel = 'noopener';
+      }
+    });
+
+    const detail = root instanceof Element && root.matches('.detail-contact-card')
+      ? root
+      : root.querySelector('.detail-contact-card');
+    if (detail) {
+      const id = listingIdForNode(detail);
+      if (/^\d+$/.test(id)) {
+        const whatsapp = detail.querySelector('a.btn-whatsapp');
+        if (whatsapp) {
+          whatsapp.href = `/auth/listing-contact/${encodeURIComponent(id)}/whatsapp`;
+          whatsapp.target = '_blank';
+          whatsapp.rel = 'noopener';
+        }
+        const call = detail.querySelector('a[href^="tel:"], a[data-pp-call-action]');
+        if (call) {
+          call.setAttribute('data-pp-call-action', id);
+          void hydrateCallLink(call, id);
+        }
+      }
+    }
+
+    const retired = [];
+    if (root instanceof HTMLAnchorElement && (root.getAttribute('href') || '').includes(RETIRED_CONTACT)) {
+      retired.push(root);
+    }
+    root.querySelectorAll(`a[href*="${RETIRED_CONTACT}"]`).forEach(anchor => retired.push(anchor));
+    for (const anchor of retired) {
+      const id = listingIdForNode(anchor);
+      if (/^\d+$/.test(id)) {
+        if (anchor.classList.contains('btn-whatsapp')) {
+          anchor.href = `/auth/listing-contact/${encodeURIComponent(id)}/whatsapp`;
+        } else {
+          anchor.setAttribute('data-pp-call-action', id);
+          void hydrateCallLink(anchor, id);
+        }
+      } else {
+        anchor.replaceWith(unavailableContactLabel());
+      }
+    }
   }
 
   window.fetchListings = async function fetchListings(filters = {}) {
@@ -82,7 +184,54 @@
       return;
     }
     originalRenderCards(listings, containerId);
-    neutralizeRetiredContacts(document.getElementById(containerId));
+    applyContactRoutes(
+      document.getElementById(containerId),
+      (Array.isArray(listings) ? listings : []).map(listing => listing?.id),
+    );
+  };
+
+  window.loadDistricts = async function loadDistricts() {
+    const container = document.getElementById('districtsGrid');
+    if (!container) return;
+    try {
+      const body = await client.requestJson('/auth/district-guides');
+      const districts = Array.isArray(body.data) ? body.data : [];
+      if (districts.length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>No district guides available.</p></div>';
+        return;
+      }
+      container.innerHTML = districts.map(district => {
+        const page = district.linkType === 'sale'
+          ? 'properties-sale.html'
+          : district.linkType === 'rent'
+            ? 'properties-rent.html'
+            : district.linkType === 'land'
+              ? 'properties-land.html'
+              : 'properties.html';
+        const href = `${page}?search=${encodeURIComponent(district.name || '')}`;
+        const checks = (Array.isArray(district.checks) ? district.checks : [])
+          .map(check => `<div><i class="fa-solid fa-check"></i> ${htmlEscape(check)}</div>`)
+          .join('');
+        return `
+          <a href="${href}" class="district-card district-card-link" id="district-${Number(district.id) || 0}">
+            <div class="district-card-img"><img src="${htmlEscape(district.image)}" alt="${htmlEscape(district.name)}" data-pp-image-fallback="true"></div>
+            <div>
+              <div class="district-meta"><span class="dot"></span> ${htmlEscape(district.name)} <span>•</span> ${htmlEscape(district.city)}</div>
+              <h3>${htmlEscape(district.name)}</h3>
+              <p>${htmlEscape(district.description)}</p>
+              <div class="district-checks">${checks}</div>
+            </div>
+            <div class="district-footer"><span>View properties <i class="fa-solid fa-arrow-right"></i></span></div>
+          </a>`;
+      }).join('');
+    } catch (error) {
+      console.error('District guide fetch failed:', error);
+      client.renderGridError(
+        container,
+        error.message || 'District guides could not be loaded from the database.',
+        window.loadDistricts,
+      );
+    }
   };
 
   const typeSelect = document.getElementById('typeSelect');
@@ -114,10 +263,10 @@
 
   const observer = new MutationObserver(records => {
     for (const record of records) {
-      for (const node of record.addedNodes) neutralizeRetiredContacts(node);
+      for (const node of record.addedNodes) applyContactRoutes(node);
     }
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
-  document.addEventListener('DOMContentLoaded', () => neutralizeRetiredContacts(document), { once: true });
-  neutralizeRetiredContacts(document);
+  document.addEventListener('DOMContentLoaded', () => applyContactRoutes(document), { once: true });
+  applyContactRoutes(document);
 })();

@@ -8,10 +8,18 @@
   const originalApiFetch = window.apiFetch;
   let currentProfile = null;
 
+  function safeMediaUrl(value) {
+    return typeof value === 'string' && (value.startsWith('https://') || value.startsWith('/api/images/'));
+  }
+
+  // The upload API intentionally returns same-origin /api/images/... URLs.
+  // Keep the legacy dashboard helpers strict while allowing those managed files.
+  window.isSafeUrl = safeMediaUrl;
+
   function roleAwareListingUrl(url, options = {}) {
     const method = String(options.method || 'GET').toUpperCase();
     if (method === 'POST' && url === '/api/listings') return '/auth/listing-records';
-    if (method === 'PUT' && /^\/api\/listings\/\d+$/.test(url)) {
+    if (['PUT', 'DELETE'].includes(method) && /^\/api\/listings\/\d+$/.test(url)) {
       return url.replace('/api/listings/', '/auth/listing-records/');
     }
     return url;

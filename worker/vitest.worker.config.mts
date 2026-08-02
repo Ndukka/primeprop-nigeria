@@ -28,6 +28,9 @@ export default defineConfig({
     include: [
       'tests/runtime-security.test.ts',
       'tests/dashboard-runtime.test.ts',
+      'tests/admin-inventory-runtime.test.ts',
+      'tests/admin-user-lookup-runtime.test.ts',
+      'tests/listing-contact-profile-runtime.test.ts',
     ],
     setupFiles: ['./tests/setup-worker.ts'],
     testTimeout: 30000,

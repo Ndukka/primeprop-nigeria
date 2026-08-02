@@ -5,9 +5,9 @@
   const client = window.PrimePropClient;
   if (!client) throw new Error('PrimePropClient must load before the admin dashboard.');
 
-  const originalLoadUsersData = window.loadUsersData;
   const originalResetUserForm = window.resetUserForm;
   const originalApiFetch = window.apiFetch;
+  let adminUsers = [];
 
   function messageFrom(reason, fallback) {
     return reason instanceof Error && reason.message ? reason.message : fallback;
@@ -40,7 +40,7 @@
 
   function badge(text, type) {
     const element = document.createElement('span');
-    const safeTypes = new Set(['rent', 'sale', 'land', 'featured']);
+    const safeTypes = new Set(['rent', 'sale', 'land', 'featured', 'all']);
     element.className = `badge badge-${safeTypes.has(type) ? type : 'rent'}`;
     element.textContent = text;
     return element;
@@ -58,13 +58,27 @@
     return button;
   }
 
+  function emptyTable(target, columnCount, text) {
+    const tbody = document.getElementById(target);
+    if (!tbody) return;
+    clear(tbody);
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = columnCount;
+    cell.className = 'empty-state-admin';
+    const icon = document.createElement('i');
+    icon.className = 'fa-solid fa-folder-open';
+    const message = document.createElement('p');
+    message.textContent = text;
+    cell.append(icon, message);
+    row.appendChild(cell);
+    tbody.appendChild(row);
+  }
+
   function filteredAdminListings() {
-    const searchInput = document.getElementById('searchInput');
-    const typeInput = document.getElementById('filterType');
-    const cityInput = document.getElementById('filterCity');
-    const search = String(searchInput?.value || '').trim().toLowerCase();
-    const type = String(typeInput?.value || 'all');
-    const city = String(cityInput?.value || 'all');
+    const search = String(document.getElementById('searchInput')?.value || '').trim().toLowerCase();
+    const type = String(document.getElementById('filterType')?.value || 'all');
+    const city = String(document.getElementById('filterCity')?.value || 'all');
 
     return allListings.filter(listing => {
       if (type !== 'all' && listing.type !== type) return false;
@@ -82,29 +96,20 @@
     clear(tbody);
 
     if (rows.length === 0) {
-      const row = document.createElement('tr');
-      const cell = document.createElement('td');
-      cell.colSpan = 10;
-      cell.className = 'empty-state-admin';
-      const icon = document.createElement('i');
-      icon.className = 'fa-solid fa-folder-open';
-      const text = document.createElement('p');
-      text.textContent = allListings.length === 0
-        ? 'No listings are stored in the database.'
-        : 'No listings match the selected filters.';
-      cell.append(icon, text);
-      row.appendChild(cell);
-      tbody.appendChild(row);
+      emptyTable(
+        'tableBody',
+        10,
+        allListings.length === 0
+          ? 'No listings are stored in the database.'
+          : 'No listings match the selected filters.',
+      );
       return;
     }
 
     for (const listing of rows) {
       const row = document.createElement('tr');
-
       const imageCell = document.createElement('td');
-      const firstImage = Array.isArray(listing.images) && listing.images.length > 0
-        ? listing.images[0]
-        : null;
+      const firstImage = Array.isArray(listing.images) && listing.images.length > 0 ? listing.images[0] : null;
       const imageUrl = typeof firstImage === 'string' ? firstImage : firstImage?.url;
       if (safeMediaUrl(imageUrl)) {
         const image = document.createElement('img');
@@ -113,9 +118,7 @@
         image.className = 'td-img';
         image.addEventListener('error', () => image.remove());
         imageCell.appendChild(image);
-      } else {
-        imageCell.textContent = '—';
-      }
+      } else imageCell.textContent = '—';
       row.appendChild(imageCell);
 
       const titleCell = document.createElement('td');
@@ -142,18 +145,11 @@
       }
       row.appendChild(priceCell);
 
-      const locationCell = document.createElement('td');
-      locationCell.style.color = '#64748b';
-      locationCell.textContent = listing.location || '—';
-      row.appendChild(locationCell);
-
-      const bedsCell = document.createElement('td');
-      bedsCell.textContent = listing.bedrooms == null ? '—' : String(listing.bedrooms);
-      row.appendChild(bedsCell);
-
-      const bathsCell = document.createElement('td');
-      bathsCell.textContent = listing.bathrooms == null ? '—' : String(listing.bathrooms);
-      row.appendChild(bathsCell);
+      for (const value of [listing.location || '—', listing.bedrooms ?? '—', listing.bathrooms ?? '—']) {
+        const cell = document.createElement('td');
+        cell.textContent = String(value);
+        row.appendChild(cell);
+      }
 
       const featuredCell = document.createElement('td');
       featuredCell.appendChild(listing.featured ? badge('★ Featured', 'featured') : document.createTextNode('—'));
@@ -162,12 +158,10 @@
       const verifiedCell = document.createElement('td');
       if (listing.verified) {
         verifiedCell.style.color = '#16a34a';
-        const verifiedIcon = document.createElement('i');
-        verifiedIcon.className = 'fa-solid fa-circle-check';
-        verifiedCell.append(verifiedIcon, document.createTextNode(' Verified'));
-      } else {
-        verifiedCell.textContent = '—';
-      }
+        const icon = document.createElement('i');
+        icon.className = 'fa-solid fa-circle-check';
+        verifiedCell.append(icon, document.createTextNode(' Verified'));
+      } else verifiedCell.textContent = '—';
       row.appendChild(verifiedCell);
 
       const actionsCell = document.createElement('td');
@@ -179,7 +173,126 @@
       );
       actionsCell.appendChild(actions);
       row.appendChild(actionsCell);
+      tbody.appendChild(row);
+    }
+  };
 
+  window.renderDistrictsTable = function renderDistrictsTable() {
+    const tbody = document.getElementById('districtsTableBody');
+    if (!tbody) return;
+    clear(tbody);
+    if (allDistricts.length === 0) {
+      emptyTable('districtsTableBody', 6, 'No districts are stored in the database.');
+      return;
+    }
+
+    for (const district of allDistricts) {
+      const row = document.createElement('tr');
+      const imageCell = document.createElement('td');
+      if (safeMediaUrl(district.image)) {
+        const image = document.createElement('img');
+        image.src = district.image;
+        image.alt = district.name || '';
+        image.className = 'td-img';
+        image.addEventListener('error', () => image.remove());
+        imageCell.appendChild(image);
+      } else imageCell.textContent = '—';
+      row.appendChild(imageCell);
+
+      const nameCell = document.createElement('td');
+      nameCell.className = 'td-title';
+      nameCell.textContent = district.name || 'Unnamed district';
+      row.appendChild(nameCell);
+
+      const cityCell = document.createElement('td');
+      cityCell.textContent = district.city || '—';
+      row.appendChild(cityCell);
+
+      const checksCell = document.createElement('td');
+      const checks = Array.isArray(district.checks) ? district.checks : [];
+      if (checks.length === 0) checksCell.textContent = '—';
+      else {
+        for (const check of checks) {
+          const item = badge(String(check), 'land');
+          item.style.marginRight = '4px';
+          checksCell.appendChild(item);
+        }
+      }
+      row.appendChild(checksCell);
+
+      const linkCell = document.createElement('td');
+      linkCell.appendChild(badge(district.linkType || 'all', district.linkType || 'all'));
+      row.appendChild(linkCell);
+
+      const actionsCell = document.createElement('td');
+      const actions = document.createElement('div');
+      actions.className = 'actions-cell';
+      actions.append(
+        actionButton('Edit', 'fa-solid fa-pen-to-square', 'btn btn-outline btn-xs', () => window.openDistrictModal(district.id)),
+        actionButton('Delete', 'fa-solid fa-trash', 'btn btn-danger btn-xs', () => window.confirmDeleteDistrict(district.id, district.name || 'district')),
+      );
+      actionsCell.appendChild(actions);
+      row.appendChild(actionsCell);
+      tbody.appendChild(row);
+    }
+  };
+
+  window.renderUsersTable = function renderUsersTable() {
+    const tbody = document.getElementById('usersTableBody');
+    if (!tbody) return;
+    clear(tbody);
+    if (adminUsers.length === 0) {
+      emptyTable('usersTableBody', 8, 'No users are stored in the database.');
+      return;
+    }
+
+    for (const user of adminUsers) {
+      const row = document.createElement('tr');
+      const nameCell = document.createElement('td');
+      nameCell.style.fontWeight = '600';
+      nameCell.textContent = user.name || 'Unnamed user';
+      row.appendChild(nameCell);
+
+      const emailCell = document.createElement('td');
+      emailCell.textContent = user.email || '—';
+      row.appendChild(emailCell);
+
+      const roleCell = document.createElement('td');
+      roleCell.appendChild(badge(user.role || 'agent', user.role === 'admin' ? 'sale' : 'rent'));
+      row.appendChild(roleCell);
+
+      const statusCell = document.createElement('td');
+      const banned = user.accountStatus === 'banned';
+      statusCell.style.color = banned ? '#dc2626' : '#16a34a';
+      statusCell.textContent = banned ? '⛔ Banned' : user.accountStatus === 'pending' ? '⏳ Pending' : '✅ Active';
+      row.appendChild(statusCell);
+
+      const loginCell = document.createElement('td');
+      loginCell.style.color = '#64748b';
+      loginCell.textContent = user.lastLoginAt || 'Never';
+      row.appendChild(loginCell);
+
+      const countCell = document.createElement('td');
+      countCell.textContent = String(Number(user.loginCount || 0));
+      row.appendChild(countCell);
+
+      const joinedCell = document.createElement('td');
+      joinedCell.style.color = '#64748b';
+      joinedCell.textContent = String(user.createdAt || '').split(/[ T]/, 1)[0] || '—';
+      row.appendChild(joinedCell);
+
+      const actionsCell = document.createElement('td');
+      actionsCell.className = 'actions-cell';
+      if (banned) {
+        actionsCell.appendChild(actionButton('Unban', 'fa-solid fa-unlock', 'btn btn-success btn-xs', () => window.unbanUser(user.id)));
+      } else {
+        actionsCell.appendChild(actionButton('Ban', 'fa-solid fa-ban', 'btn btn-outline btn-xs', () => window.banUser(user.id, user.name || 'user')));
+      }
+      actionsCell.appendChild(actionButton('Edit', 'fa-solid fa-pen-to-square', 'btn btn-outline btn-xs', () => window.openUserModal(user.id)));
+      if (user.role !== 'admin') {
+        actionsCell.appendChild(actionButton('Delete', 'fa-solid fa-trash', 'btn btn-danger btn-xs', () => window.deleteUser(user.id, user.name || 'user')));
+      }
+      row.appendChild(actionsCell);
       tbody.appendChild(row);
     }
   };
@@ -204,12 +317,7 @@
       if (activeTab === 'listings') window.renderTable();
     } else {
       console.error(listingsResult.reason);
-      client.renderTableError(
-        'tableBody',
-        10,
-        messageFrom(listingsResult.reason, 'Listings could not be loaded from the database.'),
-        window.loadData,
-      );
+      client.renderTableError('tableBody', 10, messageFrom(listingsResult.reason, 'Listings could not be loaded from the database.'), window.loadData);
     }
 
     if (statsResult.status === 'fulfilled') {
@@ -230,59 +338,23 @@
 
   window.loadDistrictsData = async function loadDistrictsData() {
     try {
-      const body = await client.requestJson('/api/districts', {}, adminFetch);
-      const rows = Array.isArray(body.data) ? body.data : [];
-      allDistricts = rows.map(district => ({
-        ...district,
-        linkType: district.linkType || district.link_type || 'all',
-      }));
+      const body = await client.requestJson('/auth/admin-districts', {}, adminFetch);
+      allDistricts = Array.isArray(body.data) ? body.data : [];
       window.renderDistrictsTable();
     } catch (error) {
       console.error(error);
-      client.renderTableError(
-        'districtsTableBody',
-        6,
-        messageFrom(error, 'Districts could not be loaded from the database.'),
-        window.loadDistrictsData,
-      );
+      client.renderTableError('districtsTableBody', 6, messageFrom(error, 'Districts could not be loaded from the database.'), window.loadDistrictsData);
     }
   };
 
   window.loadUsersData = async function loadUsersData() {
     try {
-      const body = await client.requestJson('/auth/users', {}, adminFetch);
-      const normalizedBody = {
-        ...body,
-        data: (Array.isArray(body.data) ? body.data : []).map(user => ({
-          ...user,
-          account_status: user.account_status || 'pending',
-        })),
-      };
-
-      const currentApiFetch = window.apiFetch;
-      window.apiFetch = async function interceptedApiFetch(url, options) {
-        if (url === '/auth/users' && (!options || !options.method || options.method === 'GET')) {
-          return new Response(JSON.stringify(normalizedBody), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        return currentApiFetch(url, options);
-      };
-
-      try {
-        await originalLoadUsersData();
-      } finally {
-        window.apiFetch = currentApiFetch;
-      }
+      const body = await client.requestJson('/auth/admin-users', {}, adminFetch);
+      adminUsers = Array.isArray(body.data) ? body.data : [];
+      window.renderUsersTable();
     } catch (error) {
       console.error(error);
-      client.renderTableError(
-        'usersTableBody',
-        8,
-        messageFrom(error, 'Users could not be loaded from the database.'),
-        window.loadUsersData,
-      );
+      client.renderTableError('usersTableBody', 8, messageFrom(error, 'Users could not be loaded from the database.'), window.loadUsersData);
     }
   };
 

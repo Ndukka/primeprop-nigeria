@@ -1,4 +1,5 @@
 import './role-profile-routes';
+import './admin-inventory-routes';
 import { DurableObject } from 'cloudflare:workers';
 
 // ── Rate Limiter Durable Object ───────────────────────────
