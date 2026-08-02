@@ -74,6 +74,21 @@ async function usersProjection(c: any): Promise<string> {
   ].join(', ');
 }
 
+function userDto(user: any) {
+  return {
+    id: Number(user.id),
+    email: String(user.email || ''),
+    name: String(user.name || ''),
+    role: user.role === 'admin' ? 'admin' : 'agent',
+    avatarUrl: String(user.avatar_url || ''),
+    phone: String(user.phone || ''),
+    accountStatus: String(user.account_status || 'active'),
+    lastLoginAt: user.last_login_at == null ? '' : String(user.last_login_at),
+    loginCount: Number(user.login_count || 0),
+    createdAt: user.created_at == null ? '' : String(user.created_at),
+  };
+}
+
 function normalizeContactNumber(value: unknown): string {
   let digits = String(value || '').replace(/\D/g, '');
   if (digits.startsWith('00')) digits = digits.slice(2);
@@ -115,21 +130,21 @@ authRoutes.get('/admin-users', requireAuth, requireRole('admin'), async c => {
   const { results } = await c.env.DB.prepare(
     `SELECT ${projection} FROM users ORDER BY id ASC`,
   ).all();
-
-  const data = (results || []).map((user: any) => ({
-    id: Number(user.id),
-    email: String(user.email || ''),
-    name: String(user.name || ''),
-    role: String(user.role || 'agent'),
-    avatarUrl: String(user.avatar_url || ''),
-    phone: String(user.phone || ''),
-    accountStatus: String(user.account_status || 'active'),
-    lastLoginAt: user.last_login_at == null ? '' : String(user.last_login_at),
-    loginCount: Number(user.login_count || 0),
-    createdAt: user.created_at == null ? '' : String(user.created_at),
-  }));
-
+  const data = (results || []).map(userDto);
   return c.json({ success: true, count: data.length, data });
+});
+
+authRoutes.get('/admin-users/:id', requireAuth, requireRole('admin'), async c => {
+  c.header('Cache-Control', 'no-store');
+  const id = sanitizePositiveInt(c.req.param('id'), 0, 1, Number.MAX_SAFE_INTEGER);
+  if (!id) return c.json({ success: false, message: 'Invalid user ID' }, 400);
+
+  const projection = await usersProjection(c);
+  const user = await c.env.DB.prepare(
+    `SELECT ${projection} FROM users WHERE id = ?`,
+  ).bind(id).first();
+  if (!user) return c.json({ success: false, message: 'User not found' }, 404);
+  return c.json({ success: true, data: userDto(user) });
 });
 
 authRoutes.delete('/listing-records/:id', csrfProtection, requireAuth, async c => {
