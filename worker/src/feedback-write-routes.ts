@@ -1,10 +1,14 @@
 import { authRoutes } from './auth';
 import { sanitizePositiveInt } from './utils';
 import { sanitizeFeedbackText, validateRatingComment } from './feedback-policy';
+import { networkEvidenceFingerprint } from './feedback-evidence-policy';
 import {
   eligibleRatingSource,
   feedbackEnv,
+  feedbackRequestCountry,
+  feedbackRequestId,
   feedbackRequestIp,
+  feedbackRequestUserAgent,
   requireReviewerWrite,
   setFeedbackNoStore,
 } from './feedback-route-helpers';
@@ -104,7 +108,7 @@ authRoutes.post('/feedback/ratings', async c => {
         action,
         existing.id,
         auditDetails,
-        c.req.header('CF-Ray') || '',
+        feedbackRequestId(c),
         feedbackRequestIp(c),
       ),
     ]);
@@ -132,7 +136,7 @@ authRoutes.post('/feedback/ratings', async c => {
         session.email,
         action,
         auditDetails,
-        c.req.header('CF-Ray') || '',
+        feedbackRequestId(c),
         feedbackRequestIp(c),
       ),
     ]);
@@ -213,14 +217,38 @@ authRoutes.post('/feedback/reports', async c => {
   const publicId = crypto.randomUUID();
   const listingId = targetType === 'listing' ? targetId : null;
   const agentId = targetType === 'agent' ? targetId : null;
+  const reporterIp = feedbackRequestIp(c);
+  const retainedIp = reporterIp === 'unknown' ? '' : reporterIp;
+  const reporterIpHash = retainedIp
+    ? await networkEvidenceFingerprint(retainedIp, env.JWT_SECRET)
+    : '';
+  const reporterCountry = feedbackRequestCountry(c);
+  const reporterUserAgent = feedbackRequestUserAgent(c);
+  const requestId = feedbackRequestId(c);
   const auditDetails = JSON.stringify({ publicId, targetType, targetId, reasonCode });
   await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO moderation_reports
        (public_id, reporter_reviewer_id, target_type, listing_id,
-        agent_user_id, reason_code, details)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(publicId, session.reviewerId, targetType, listingId, agentId, reasonCode, details),
+        agent_user_id, reason_code, details, reporter_email_snapshot,
+        reporter_email_verified, reporter_ip, reporter_ip_hash,
+        reporter_country, reporter_user_agent, request_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+    ).bind(
+      publicId,
+      session.reviewerId,
+      targetType,
+      listingId,
+      agentId,
+      reasonCode,
+      details,
+      session.email,
+      retainedIp || null,
+      reporterIpHash,
+      reporterCountry || null,
+      reporterUserAgent || null,
+      requestId || null,
+    ),
     env.DB.prepare(
       `INSERT INTO audit_events
        (actor_email, action, target_type, details, request_id, ip_address)
@@ -228,8 +256,8 @@ authRoutes.post('/feedback/reports', async c => {
     ).bind(
       session.email,
       auditDetails,
-      c.req.header('CF-Ray') || '',
-      feedbackRequestIp(c),
+      requestId,
+      reporterIp,
     ),
   ]);
 
