@@ -3,6 +3,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const HARDENED_ENTRY = resolve(__dirname, '../src/hardened-entry.ts');
+const INVALIDATION_MIGRATION = resolve(
+  __dirname,
+  '../migrations/0020_security_stamp_invalidation_timestamp.sql',
+);
 
 function source(): string {
   return readFileSync(HARDENED_ENTRY, 'utf-8');
@@ -39,5 +43,15 @@ describe('session refresh race source contract', () => {
     expect(hardened).toContain("UPDATE sessions SET revoked = 1 WHERE token_family = ?");
     expect(hardened).toContain("Session reuse was detected. Please sign in again.");
     expect(hardened).toContain("UPDATE users SET security_stamp = ? WHERE id = ?");
+  });
+
+  it('advances the access-token invalidation timestamp for every security-stamp change', () => {
+    const migration = readFileSync(INVALIDATION_MIGRATION, 'utf-8');
+
+    expect(migration).toContain('AFTER UPDATE OF security_stamp ON users');
+    expect(migration).toContain('WHEN NEW.security_stamp IS NOT OLD.security_stamp');
+    expect(migration).toContain('SET security_stamp_changed_at =');
+    expect(migration).toContain("strftime('%s', 'now')");
+    expect(migration).toContain("strftime('%f', 'now')");
   });
 });
