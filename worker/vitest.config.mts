@@ -17,6 +17,7 @@ export default defineConfig({
       'tests/admin-inventory-client-regressions.test.ts',
       'tests/cloudflare-usage-regressions.test.ts',
       'tests/listing-approval-regressions.test.ts',
+      'tests/feedback-regressions.test.ts',
     ],
     testTimeout: 30000,
   },
