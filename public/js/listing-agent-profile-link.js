@@ -1,34 +1,44 @@
-/* Makes the database-backed listing contact card open its public agent profile. */
+/* Makes a listing contact card open its database-backed agent profile. */
 (() => {
   'use strict';
 
   let applied = false;
 
   function listingId() {
-    const value = new URLSearchParams(window.location.search).get('id');
-    return value && /^\d+$/.test(value) ? value : '';
+    const queryValue = new URLSearchParams(window.location.search).get('id');
+    if (queryValue && /^\d+$/.test(queryValue)) return queryValue;
+
+    const pathMatch = window.location.pathname.match(/\/listing-detail-(\d+)(?:\.html)?$/);
+    return pathMatch ? pathMatch[1] : '';
   }
 
-  async function loadAgentId(id) {
+  async function loadProfileUrl(id) {
     const listingResponse = await fetch(`/api/listings/${encodeURIComponent(id)}`, {
       cache: 'no-store',
       headers: { Accept: 'application/json' },
     });
     const listingBody = await listingResponse.json().catch(() => null);
-    if (!listingResponse.ok || !listingBody?.success) return null;
+    if (!listingResponse.ok || !listingBody?.success || !listingBody.data) return '';
 
-    const candidateId = Number(listingBody.data?.agent?.id || 0);
-    if (!Number.isSafeInteger(candidateId) || candidateId <= 0) return null;
+    const listing = listingBody.data;
+    const candidateId = Number(listing.agent?.id || 0);
+    if (Number.isSafeInteger(candidateId) && candidateId > 0) {
+      const profileResponse = await fetch(`/auth/public-agents/${encodeURIComponent(candidateId)}`, {
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+      });
+      if (!profileResponse.ok) return '';
+      const profileBody = await profileResponse.json().catch(() => null);
+      return profileBody?.success && Number(profileBody.data?.id) === candidateId
+        ? `/agent-profile?id=${encodeURIComponent(candidateId)}`
+        : '';
+    }
 
-    const profileResponse = await fetch(`/auth/public-agents/${encodeURIComponent(candidateId)}`, {
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-    });
-    if (!profileResponse.ok) return null;
-    const profileBody = await profileResponse.json().catch(() => null);
-    return profileBody?.success && Number(profileBody.data?.id) === candidateId
-      ? candidateId
-      : null;
+    const listingAgentName = String(listing.agent?.name || '').trim();
+    const publicListingId = Number(listing.id || id);
+    return listingAgentName && Number.isSafeInteger(publicListingId) && publicListingId > 0
+      ? `/agent-profile?listing=${encodeURIComponent(publicListingId)}`
+      : '';
   }
 
   function resetCardStyle(card) {
@@ -43,15 +53,14 @@
     card.style.borderColor = '#cbd5e1';
   }
 
-  function applyLink(card, agentId) {
-    if (applied || card.dataset.agentProfileId) return;
+  function applyLink(card, url) {
+    if (applied || card.dataset.agentProfileUrl) return;
     applied = true;
-    card.dataset.agentProfileId = String(agentId);
+    card.dataset.agentProfileUrl = url;
     card.classList.add('agent-card-linkable');
     card.style.cursor = 'pointer';
     card.style.transition = 'transform .2s ease, box-shadow .2s ease, border-color .2s ease';
 
-    const url = `/agent-profile?id=${encodeURIComponent(agentId)}`;
     card.addEventListener('click', event => {
       if (event.target.closest('a, button, input, select, textarea')) return;
       window.location.assign(url);
@@ -83,12 +92,13 @@
   async function tryApply() {
     if (applied) return;
     const id = listingId();
-    const card = document.querySelector('#detailContent .detail-sidebar .detail-contact-card');
+    const card = document.querySelector('#detailContent .detail-sidebar .detail-contact-card')
+      || document.querySelector('.detail-sidebar .detail-contact-card');
     if (!id || !card) return;
 
     try {
-      const agentId = await loadAgentId(id);
-      if (agentId) applyLink(card, agentId);
+      const profileUrl = await loadProfileUrl(id);
+      if (profileUrl) applyLink(card, profileUrl);
     } catch (error) {
       console.error('Agent profile link could not be prepared.', error);
     }
