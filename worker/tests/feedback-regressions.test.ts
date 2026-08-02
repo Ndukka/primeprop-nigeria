@@ -64,6 +64,7 @@ describe('feedback architecture and privacy contracts', () => {
   it('uses state, nonce, exact callback validation and PKCE S256 without storing Google tokens', () => {
     const auth = source('worker/src/feedback-auth-routes.ts');
     const policy = source('worker/src/feedback-policy.ts');
+    const returns = source('worker/src/feedback-return.ts');
 
     expect(auth).toContain("url.pathname !== '/auth/feedback/google/callback'");
     expect(auth).toContain("url.searchParams.set('state', state)");
@@ -77,6 +78,8 @@ describe('feedback architecture and privacy contracts', () => {
     expect(policy).not.toContain('google_refresh_token');
     expect(auth).toContain("url.searchParams.set('scope', 'openid email')");
     expect(auth).not.toContain('openid email profile');
+    expect(returns).toContain('SAFE_ACTIONS');
+    expect(returns).toContain('actionAllowedForPath');
   });
 
   it('masks reviewer email before constructing the public response DTO', () => {
@@ -92,15 +95,18 @@ describe('feedback architecture and privacy contracts', () => {
 
   it('requires origin, session-bound CSRF and feedback authorization proof on reviewer writes', () => {
     const helpers = source('worker/src/feedback-route-helpers.ts');
+    const csrf = source('worker/src/feedback-csrf.ts');
     const client = source('public/js/feedback-client.js');
 
     expect(helpers).toContain('feedbackWriteRequestError');
-    expect(helpers).toContain('validateReviewerCsrf');
-    expect(helpers).toContain('Authorization');
-    expect(helpers).toContain('Feedback ${csrf}');
-    expect(helpers).toContain('pp_(?:session|refresh)');
-    expect(client).toContain("'X-CSRF-Token': csrf");
-    expect(client).toContain('Authorization: `Feedback ${csrf}`');
+    expect(helpers).toContain('validateSessionCsrf');
+    expect(helpers).toContain('reviewerRequestProof');
+    expect(csrf).toContain("request.headers.get('X-CSRF-Token')");
+    expect(csrf).toContain('Authorization');
+    expect(csrf).toContain('Feedback ${headerToken}');
+    expect(client).toContain("'X-CSRF-Token': csrfToken");
+    expect(client).toContain('Authorization: `Feedback ${csrfToken}`');
+    expect(client).toContain("error?.message !== 'CSRF token mismatch.'");
   });
 
   it('captures only trusted report evidence and applies bounded retention', () => {
@@ -169,12 +175,12 @@ describe('feedback architecture and privacy contracts', () => {
       expect(emitted[asset], `${asset} must be in the manifest`).toBeTruthy();
       expect(generatedAsset(asset).length).toBeGreaterThan(200);
       expect(clientRuntime).toContain(`loadRuntime('${emitted[asset]}')`);
-      expect(clientRuntime).not.toContain(`loadRuntime('/${asset}')`);
     }
 
     expect(clientRuntime).toContain("/^\\/listing-detail(?:-[123])?$/");
     expect(clientRuntime).toContain("path === '/agent-profile'");
     expect(clientRuntime).toContain("path === '/admin'");
+    expect(clientRuntime).not.toMatch(/loadRuntime\('\/js\/(?:feedback-client|listing-feedback|agent-feedback|admin-feedback)\.js'\)/);
     expect(clientRuntime).toContain('if (runtimeNonce) script.nonce = runtimeNonce');
     expect(clientRuntime).not.toContain("path === '/properties'");
   });
@@ -184,11 +190,12 @@ describe('feedback architecture and privacy contracts', () => {
     const profile = source('public/js/agent-feedback.js');
     const admin = source('public/js/admin-feedback.js');
 
-    expect(listing).toContain('Rate this agent');
+    expect(listing).toContain('Rate & review this agent');
     expect(listing).toContain('Report this listing');
     expect(listing).toContain('Report this agent');
     expect(listing).toContain('Exact network evidence is deleted 90 days after the case closes');
-    expect(profile).toContain('Agent ratings');
+    expect(profile).toContain('Ratings and reviews');
+    expect(profile).toContain('Approved review comments');
     expect(profile).toContain('reviewerLabel');
     expect(admin).toContain('Approve score');
     expect(admin).toContain('Approve comment');
