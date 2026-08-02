@@ -44,14 +44,6 @@ const PRODUCTION_ORIGINS = new Set([
   'https://primeprop-worker.ndupsn.workers.dev',
   'https://primeprop.ng',
 ]);
-const SAFE_RETURN_PATHS = new Set([
-  '/agent-profile',
-  '/listing-detail',
-  '/listing-detail-1',
-  '/listing-detail-2',
-  '/listing-detail-3',
-  '/properties',
-]);
 
 const encoder = new TextEncoder();
 
@@ -232,39 +224,6 @@ export function appendSetCookies(response: Response, cookies: string[]): Respons
   });
 }
 
-export function safeFeedbackReturnPath(value: unknown): string {
-  if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')) {
-    return '/properties';
-  }
-  try {
-    const parsed = new URL(value, 'https://primeprop.invalid');
-    if (!SAFE_RETURN_PATHS.has(parsed.pathname)) return '/properties';
-    const allowedKeys = parsed.pathname === '/agent-profile'
-      ? new Set(['id', 'listing'])
-      : parsed.pathname.startsWith('/listing-detail')
-        ? new Set(['id'])
-        : new Set<string>();
-    for (const key of parsed.searchParams.keys()) {
-      if (!allowedKeys.has(key)) return '/properties';
-      const parameter = parsed.searchParams.get(key) || '';
-      if (!/^\d+$/.test(parameter) || Number(parameter) <= 0) return '/properties';
-    }
-    if (parsed.pathname === '/agent-profile' && !parsed.searchParams.has('id') && !parsed.searchParams.has('listing')) {
-      return '/properties';
-    }
-    return `${parsed.pathname}${parsed.search}`;
-  } catch {
-    return '/properties';
-  }
-}
-
-export function returnPathWithFeedbackStatus(returnTo: string, status: string): string {
-  const safe = safeFeedbackReturnPath(returnTo);
-  const parsed = new URL(safe, 'https://primeprop.invalid');
-  parsed.searchParams.set('feedbackAuth', status);
-  return `${parsed.pathname}${parsed.search}`;
-}
-
 export function isAllowedFeedbackOrigin(origin: string | null, env: FeedbackBindings): boolean {
   if (!origin) return false;
   if (PRODUCTION_ORIGINS.has(origin)) return true;
@@ -399,17 +358,6 @@ export async function revokeReviewerSession(request: Request, env: FeedbackBindi
   if (!token) return;
   await env.DB.prepare('UPDATE reviewer_sessions SET revoked = 1 WHERE token_hash = ?')
     .bind(await sha256Hex(token)).run();
-}
-
-export async function validateReviewerCsrf(
-  request: Request,
-  session: ReviewerSession,
-): Promise<boolean> {
-  const cookieToken = getCookie(request, FEEDBACK_CSRF_COOKIE);
-  const headerToken = request.headers.get('X-CSRF-Token') || '';
-  if (!cookieToken || !headerToken || !timingSafeEqual(cookieToken, headerToken)) return false;
-  const suppliedHash = await sha256Hex(headerToken);
-  return timingSafeEqual(suppliedHash, session.csrfHash);
 }
 
 export async function enforceFeedbackRateLimit(
