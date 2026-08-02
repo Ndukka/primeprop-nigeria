@@ -57,6 +57,8 @@ describe('feedback architecture and privacy contracts', () => {
     expect(migration).toContain('source listing is not eligible');
     expect(migration).toContain("listing.approval_status = 'approved'");
     expect(migration).toContain('listing.created_by = NEW.agent_user_id');
+    expect(migration).toContain('SELECT (CASE');
+    expect(migration).not.toContain('SELECT CASE');
   });
 
   it('uses state, nonce, exact callback validation and PKCE S256 without storing Google tokens', () => {
@@ -74,7 +76,7 @@ describe('feedback architecture and privacy contracts', () => {
     expect(policy).not.toContain('google_access_token');
     expect(policy).not.toContain('google_refresh_token');
     expect(auth).toContain("url.searchParams.set('scope', 'openid email')");
-    expect(auth).not.toContain("openid email profile");
+    expect(auth).not.toContain('openid email profile');
   });
 
   it('masks reviewer email before constructing the public response DTO', () => {
@@ -135,6 +137,25 @@ describe('feedback architecture and privacy contracts', () => {
     expect(cases).not.toMatch(/DELETE FROM listings/i);
   });
 
+  it('uses one fail-closed release command and documents callback URL changes', () => {
+    const release = source('worker/scripts/release-production-verified.mjs');
+    const packageJson = JSON.parse(source('worker/package.json')) as { scripts: Record<string, string> };
+    const runbook = source('docs/runbooks/google-feedback-redirect-and-production-release.md');
+
+    expect(packageJson.scripts['release:production:verified'])
+      .toBe('node ./scripts/release-production-verified.mjs');
+    expect(release).toContain("['d1', 'migrations', 'apply', 'primeprop-db', '--remote']");
+    expect(release).toContain('Remote D1 still reports unapplied migrations');
+    expect(release).toContain("['run', 'deploy:verified']");
+    expect(release.indexOf("'APPLY REMOTE D1 MIGRATIONS'"))
+      .toBeLessThan(release.indexOf("'DEPLOY AND VERIFY WORKER'"));
+    expect(runbook).toContain('secret put GOOGLE_FEEDBACK_REDIRECT_URI');
+    expect(runbook).toContain('https://primeprop-worker.ndupsn.workers.dev/auth/feedback/google/callback');
+    expect(runbook).toContain('https://primeprop.ng/auth/feedback/google/callback');
+    expect(runbook).toContain('npm run release:production:verified');
+    expect(runbook).toContain('Do not manually continue to `deploy:verified` after a migration error.');
+  });
+
   it('emits feedback assets and loads them only on relevant routes', () => {
     const clientRuntime = generatedAsset('js/client-data.js');
     const emitted = manifest().assets;
@@ -153,7 +174,7 @@ describe('feedback architecture and privacy contracts', () => {
     expect(clientRuntime).toContain("path === '/agent-profile'");
     expect(clientRuntime).toContain("path === '/admin'");
     expect(clientRuntime).toContain("loadRuntime('/js/feedback-client.js')");
-    expect(clientRuntime).toContain("if (runtimeNonce) script.nonce = runtimeNonce");
+    expect(clientRuntime).toContain('if (runtimeNonce) script.nonce = runtimeNonce');
     expect(clientRuntime).not.toContain("path === '/properties'");
   });
 
