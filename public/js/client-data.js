@@ -9,6 +9,7 @@
   const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
   const PAGE_SIZE = 100;
   const MAX_PAGES = 100;
+  const runtimeNonce = document.currentScript?.nonce || '';
   const MANUAL_MEDIA_FIELD_IDS = [
     'formImages',
     'districtFormImage',
@@ -238,6 +239,37 @@
     startFooterSignInPolicy();
   }
 
+  function loadRuntime(source) {
+    return new Promise((resolve, reject) => {
+      if (document.querySelector(`script[data-primeprop-runtime="${source}"]`)) {
+        resolve();
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = source;
+      script.async = false;
+      script.dataset.primepropRuntime = source;
+      script.referrerPolicy = 'no-referrer';
+      if (runtimeNonce) script.nonce = runtimeNonce;
+      script.addEventListener('load', resolve, { once: true });
+      script.addEventListener('error', () => reject(new Error(`Runtime failed to load: ${source}`)), { once: true });
+      document.head.appendChild(script);
+    });
+  }
+
+  async function loadFeedbackRuntimes() {
+    const path = window.location.pathname.replace(/\.html$/, '').replace(/\/+$/, '') || '/';
+    const listingDetail = /^\/listing-detail(?:-[123])?$/.test(path);
+    const profile = path === '/agent-profile';
+    const admin = path === '/admin';
+    if (!listingDetail && !profile && !admin) return;
+
+    await loadRuntime('/js/feedback-client.js');
+    if (listingDetail) await loadRuntime('/js/listing-feedback.js');
+    else if (profile) await loadRuntime('/js/agent-feedback.js');
+    else if (admin) await loadRuntime('/js/admin-feedback.js');
+  }
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', startSharedPagePolicies, { once: true });
   } else {
@@ -253,5 +285,9 @@
     renderTableError,
     renderGridError,
     logout,
+  });
+
+  loadFeedbackRuntimes().catch(error => {
+    console.error('PrimeProp feedback tools could not be loaded.', error);
   });
 })();

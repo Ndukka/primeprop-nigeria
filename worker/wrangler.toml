@@ -23,11 +23,15 @@ PUBLIC_APP_URL = "https://primeprop-worker.ndupsn.workers.dev"
 # PASSWORD_RESET_FROM = "PrimeProp Nigeria <security@primeprop.ng>"
 #
 # Secrets must be configured through Wrangler or Cloudflare Secrets Store:
-#   npx wrangler secret put JWT_SECRET
-#   npx wrangler secret put RESEND_API_KEY
-#   npx wrangler secret put GOOGLE_CLIENT_ID
-#   npx wrangler secret put GOOGLE_CLIENT_SECRET
-#   npx wrangler secret put GOOGLE_REDIRECT_URI
+#   node ./scripts/run-wrangler.mjs secret put JWT_SECRET
+#   node ./scripts/run-wrangler.mjs secret put RESEND_API_KEY
+#   node ./scripts/run-wrangler.mjs secret put GOOGLE_CLIENT_ID
+#   node ./scripts/run-wrangler.mjs secret put GOOGLE_CLIENT_SECRET
+#   node ./scripts/run-wrangler.mjs secret put GOOGLE_REDIRECT_URI
+#   node ./scripts/run-wrangler.mjs secret put GOOGLE_FEEDBACK_REDIRECT_URI
+#
+# GOOGLE_FEEDBACK_REDIRECT_URI must be exactly:
+# https://primeprop-worker.ndupsn.workers.dev/auth/feedback/google/callback
 # Never place secret values in this file.
 
 # Durable Objects for rate limiting
