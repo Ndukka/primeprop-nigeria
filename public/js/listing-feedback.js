@@ -105,6 +105,17 @@
       'Reports are private and reviewed by a PrimeProp administrator. A report does not automatically remove a listing or suspend an agent.',
     ));
 
+    const privacy = document.createElement('p');
+    privacy.textContent = `Submitting as ${reviewer.reviewerLabel}. Administrators can see the verified Google email used for this report and limited network evidence—IP address, country, browser signature and Cloudflare request ID—for investigation and abuse prevention. Exact network evidence is deleted 90 days after the case closes.`;
+    privacy.style.margin = '0 0 18px';
+    privacy.style.padding = '12px 14px';
+    privacy.style.borderRadius = '10px';
+    privacy.style.background = '#f8fafc';
+    privacy.style.color = '#475569';
+    privacy.style.fontSize = '.82rem';
+    privacy.style.lineHeight = '1.5';
+    modal.body.appendChild(privacy);
+
     const reason = document.createElement('select');
     for (const [value, label] of REPORT_OPTIONS) {
       const option = document.createElement('option');
