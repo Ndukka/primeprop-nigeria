@@ -33,6 +33,7 @@ export default defineConfig({
       'tests/listing-contact-profile-runtime.test.ts',
       'tests/listing-approval-runtime.test.ts',
       'tests/suspended-media-runtime.test.ts',
+      'tests/feedback-runtime.test.ts',
     ],
     setupFiles: ['./tests/setup-worker.ts'],
     testTimeout: 30000,
