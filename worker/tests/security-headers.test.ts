@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildCsp, injectNonces, isHtmlPath } from '../src/security-headers';
+import {
+  buildCsp,
+  injectNonces,
+  isHtmlPath,
+  setHtmlSecurityHeaders,
+} from '../src/security-headers';
 
 describe('CSP regression coverage', () => {
   it('keeps scripts nonce-only and blocks all style attributes', () => {
@@ -59,6 +64,30 @@ describe('CSP regression coverage', () => {
     expect(second).not.toContain('nonce="first"');
     expect(second).toContain('<script nonce="second" src="/assets/app.js">');
     expect(second.match(/nonce="second"/g)).toHaveLength(1);
+  });
+
+  it('removes stale validators and forbids browser storage of rewritten HTML', () => {
+    const headers = new Headers({
+      Age: '120',
+      'Cache-Control': 'public, max-age=86400',
+      'Content-Length': '999',
+      ETag: '"old-build"',
+      Expires: 'Wed, 01 Jan 2031 00:00:00 GMT',
+      'Last-Modified': 'Wed, 01 Jan 2025 00:00:00 GMT',
+      'Surrogate-Control': 'max-age=86400',
+    });
+
+    setHtmlSecurityHeaders(headers, 'fresh');
+
+    expect(headers.get('Cache-Control')).toBe('private, no-store, max-age=0, must-revalidate');
+    expect(headers.get('Pragma')).toBe('no-cache');
+    expect(headers.get('Expires')).toBe('0');
+    expect(headers.get('Age')).toBeNull();
+    expect(headers.get('Content-Length')).toBeNull();
+    expect(headers.get('ETag')).toBeNull();
+    expect(headers.get('Last-Modified')).toBeNull();
+    expect(headers.get('Surrogate-Control')).toBeNull();
+    expect(headers.get('Content-Security-Policy')).toContain("script-src 'nonce-fresh'");
   });
 
   it('classifies clean HTML paths separately from static assets', () => {
