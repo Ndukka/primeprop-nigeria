@@ -108,7 +108,7 @@ async function listingContact(c: any, id: number): Promise<ListingContactRow | n
     `SELECT l.title, l.location, l.price,
             CASE
               WHEN l.created_by IS NULL THEN NULLIF(l.agent_phone, '')
-              WHEN u.id IS NOT NULL THEN COALESCE(NULLIF(l.agent_phone, ''), NULLIF(u.phone, ''))
+              WHEN u.id IS NOT NULL THEN COALESCE(NULLIF(u.phone, ''), NULLIF(l.agent_phone, ''))
               ELSE NULL
             END AS phone
      FROM listings l
