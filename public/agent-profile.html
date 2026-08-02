@@ -11,11 +11,13 @@
     <link rel="stylesheet" href="agent-profile.css">
 </head>
 <body>
+
     <a href="#main-content" class="skip-link">Skip to main content</a>
 
     <div class="container">
+        <!-- Header (shared across all pages) -->
         <header>
-            <a href="/" class="logo">
+            <a href="index.html" class="logo">
                 <div class="logo-icon"><i class="fa-solid fa-building"></i></div>
                 <div class="logo-text">
                     <span class="prime">PrimeProp</span>
@@ -23,18 +25,18 @@
                 </div>
             </a>
             <nav>
-                <a href="/">Home</a>
-                <a href="/properties">Listings</a>
-                <a href="/properties-rent">Rent</a>
-                <a href="/properties-sale">Buy</a>
-                <a href="/properties-land">Land</a>
-                <a href="/areas">Area Guides</a>
+                <a href="index.html">Home</a>
+                <a href="properties.html">Listings</a>
+                <a href="properties-rent.html">Rent</a>
+                <a href="properties-sale.html">Buy</a>
+                <a href="properties-land.html">Land</a>
+                <a href="areas.html">Area Guides</a>
             </nav>
-            <a href="/properties" class="btn btn-primary">Browse Listings</a>
+            <a href="properties.html" class="btn btn-primary">Browse Properties</a>
         </header>
 
         <main id="main-content" class="agent-profile-page">
-            <a href="/properties" class="back-link" data-pp-action="back"><i class="fa-solid fa-arrow-left"></i> Back to listings</a>
+            <a href="properties.html" class="back-link" data-pp-action="back"><i class="fa-solid fa-arrow-left"></i> Back to listings</a>
             <div id="agentProfileContent" aria-live="polite">
                 <div class="agent-profile-loading" role="status">
                     <span class="agent-profile-loading__avatar"></span>
@@ -46,38 +48,67 @@
         </main>
     </div>
 
+    <!-- Footer (shared across all pages) -->
     <footer>
         <div class="container">
             <div class="footer-grid">
                 <div class="footer-brand">
-                    <a href="/" class="logo">
+                    <a href="index.html" class="logo" style="color: white;">
                         <div class="logo-icon"><i class="fa-solid fa-building"></i></div>
                         <div class="logo-text">
                             <span class="prime">PrimeProp</span>
-                            <span class="ng">Nigeria</span>
+                            <span class="ng" style="color: #94a3b8;">Nigeria</span>
                         </div>
                     </a>
-                    <p>Property discovery with clearer information, safer contact and independent verification.</p>
+                    <p>Nigeria's trusted property marketplace. Search, compare, and connect with property listers using complete cost and availability information.</p>
                 </div>
                 <div class="footer-col">
-                    <h4>Explore</h4>
-                    <a href="/properties">All Listings</a>
-                    <a href="/properties-rent">Rent</a>
-                    <a href="/properties-sale">Buy</a>
-                    <a href="/properties-land">Land</a>
+                    <h4>Browse</h4>
+                    <ul>
+                        <li><a href="properties-rent.html">For rent</a></li>
+                        <li><a href="properties-sale.html">For sale</a></li>
+                        <li><a href="properties-land.html">Land</a></li>
+                        <li><a href="areas.html">Area guides</a></li>
+                    </ul>
                 </div>
                 <div class="footer-col">
-                    <h4>Research</h4>
-                    <a href="/areas">Area Guides</a>
-                    <a href="/properties">Property Search</a>
+                    <h4>Marketplace</h4>
+                    <ul>
+                        <li><a href="properties.html">All listings</a></li>
+                        <li><a href="#">Saved properties</a></li>
+                        <li><a href="#">Compare</a></li>
+                        <li><a href="#">List a property</a></li>
+                    </ul>
                 </div>
                 <div class="footer-col">
                     <h4>Account</h4>
-                    <a href="/login">Agent Login</a>
+                    <ul>
+                        <li><a href="#">Sign in</a></li>
+                        <li><a href="#">Get started</a></li>
+                        <li><a href="#">Organization</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Help</h4>
+                    <ul>
+                        <li><a href="#">How it works</a></li>
+                        <li><a href="#">Safety checklist</a></li>
+                        <li><a href="#">Report an issue</a></li>
+                    </ul>
                 </div>
             </div>
+
+            <div class="footer-safety">
+                <p><strong>⚠ Before you pay:</strong> Confirm the lister, property, documents, availability, and every fee independently.</p>
+                <a href="#">Review the inspection checklist &rarr;</a>
+            </div>
+
             <div class="footer-bottom">
-                <span>© 2026 PrimeProp Nigeria. All rights reserved.</span>
+                <div>&copy; 2026 PrimeProp Nigeria. All rights reserved.</div>
+                <div class="footer-bottom-links">
+                    <a href="#">Privacy policy</a>
+                    <a href="#">Terms of service</a>
+                </div>
             </div>
         </div>
     </footer>
