@@ -202,5 +202,8 @@ authRoutes.get('/listing-contact/:id/call', async c => {
   const phone = normalizeContactNumber(contact.phone);
   if (!phone) return c.json({ success: false, message: 'Agent contact is not available' }, 404);
 
-  return c.redirect(`tel:+${phone}`, 302);
+  return c.json({
+    success: true,
+    data: { callUrl: `tel:+${phone}` },
+  });
 });
