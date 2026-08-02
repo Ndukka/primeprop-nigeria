@@ -56,6 +56,16 @@
     return /^\d{10,15}$/.test(digits) ? digits : '';
   }
 
+  function titleCase(value) {
+    return String(value || '')
+      .replace(/[-_]+/g, ' ')
+      .replace(/\b\w/g, character => character.toUpperCase());
+  }
+
+  function uniqueStrings(values) {
+    return [...new Set(values.map(value => String(value || '').trim()).filter(Boolean))];
+  }
+
   function buttonLink(label, iconClass, href, className, external = false) {
     const link = node('a', `btn ${className}`);
     link.href = href;
@@ -187,7 +197,11 @@
     hero.appendChild(renderAvatar(profile));
 
     const identity = node('div');
-    identity.appendChild(node('div', 'agent-profile-kicker', 'PrimeProp agent profile'));
+    identity.appendChild(node(
+      'div',
+      'agent-profile-kicker',
+      profile.legacyListingProfile ? 'Listing agent' : 'PrimeProp agent profile',
+    ));
     const nameRow = node('div', 'agent-profile-name-row');
     nameRow.appendChild(node('h1', '', profile.name || 'PrimeProp Agent'));
     if (profile.verified) {
@@ -275,7 +289,8 @@
     if (profile.professionalMemberships?.length) {
       professionalDetails.appendChild(detail('Memberships', profile.professionalMemberships.join(', ')));
     }
-    professionalDetails.appendChild(detail('PrimeProp member since', displayYear(profile.memberSince)));
+    const memberSince = displayYear(profile.memberSince);
+    if (memberSince !== '—') professionalDetails.appendChild(detail('PrimeProp member since', memberSince));
     if (profile.organization?.address) professionalDetails.appendChild(detail('Office address', profile.organization.address));
     const organizationWebsite = safeHttps(profile.organization?.website);
     if (organizationWebsite) professionalDetails.appendChild(detail('Organisation website', 'Visit website', organizationWebsite));
@@ -321,22 +336,97 @@
     root.appendChild(listings);
   }
 
-  async function initialize() {
-    const id = new URLSearchParams(window.location.search).get('id');
-    if (!id || !/^\d+$/.test(id)) {
-      renderError('Select an agent from an active property listing to view their profile.');
-      return;
+  function legacyProfileFromListing(listing) {
+    const transactionSpecialty = listing.type === 'rent'
+      ? 'Property rentals'
+      : listing.type === 'sale'
+        ? 'Property sales'
+        : listing.type === 'land'
+          ? 'Land transactions'
+          : '';
+    const propertySpecialty = listing.propertyType
+      ? `${titleCase(listing.propertyType)} properties`
+      : '';
+
+    return {
+      id: null,
+      name: String(listing.agent?.name || '').trim(),
+      agentTitle: String(listing.agent?.role || 'Listing Agent').trim(),
+      avatarUrl: String(listing.agent?.avatar || '').trim(),
+      bio: '',
+      organization: {
+        name: '',
+        role: '',
+        website: '',
+        address: '',
+        logoUrl: '',
+      },
+      contact: {
+        phone: '',
+        email: '',
+        website: '',
+        officeHours: '',
+        responseTime: '',
+        linkedinUrl: '',
+        instagramUrl: '',
+      },
+      serviceAreas: uniqueStrings([listing.area, listing.city]),
+      specialties: uniqueStrings([transactionSpecialty, propertySpecialty]),
+      languages: [],
+      professionalMemberships: [],
+      yearsExperience: 0,
+      credential: { body: '', number: '' },
+      verified: false,
+      memberSince: listing.createdAt || '',
+      activeListingCount: 1,
+      listings: [listing],
+      legacyListingProfile: true,
+    };
+  }
+
+  async function fetchJson(path) {
+    const response = await fetch(path, {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok || !body?.success || !body.data) {
+      throw new Error(body?.message || 'This profile is not available.');
     }
+    return body.data;
+  }
+
+  async function loadUserProfile(id) {
+    return fetchJson(`/auth/public-agents/${encodeURIComponent(id)}`);
+  }
+
+  async function loadListingProfile(listingId) {
+    const listing = await fetchJson(`/api/listings/${encodeURIComponent(listingId)}`);
+    const ownerId = Number(listing.agent?.id || 0);
+    if (Number.isSafeInteger(ownerId) && ownerId > 0) {
+      return loadUserProfile(ownerId);
+    }
+    if (!String(listing.agent?.name || '').trim()) {
+      throw new Error('This listing does not have an agent profile.');
+    }
+    return legacyProfileFromListing(listing);
+  }
+
+  async function initialize() {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('id');
+    const listingId = params.get('listing');
 
     try {
-      const response = await fetch(`/auth/public-agents/${encodeURIComponent(id)}`, {
-        headers: { Accept: 'application/json' },
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok || !body?.success || !body.data) {
-        throw new Error(body?.message || 'This profile is not available.');
+      if (id && /^\d+$/.test(id)) {
+        renderProfile(await loadUserProfile(id));
+        return;
       }
-      renderProfile(body.data);
+      if (listingId && /^\d+$/.test(listingId)) {
+        renderProfile(await loadListingProfile(listingId));
+        return;
+      }
+      renderError('Select an agent from an active property listing to view their profile.');
     } catch (error) {
       console.error(error);
       renderError(error instanceof Error ? error.message : 'This profile is not available.');

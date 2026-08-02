@@ -1,7 +1,7 @@
 /* PrimeProp client data/session helpers.
  *
  * Centralizes JSON response validation, paginated listing retrieval, visible
- * error states, and CSRF-correct logout for the public, admin, and agent pages.
+ * error states, CSRF-correct logout, and shared page navigation policies.
  */
 (() => {
   'use strict';
@@ -219,10 +219,29 @@
     observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', startUploadOnlyMediaPolicy, { once: true });
-  } else {
+  function applyFooterSignInLinks() {
+    const links = document.querySelectorAll('footer .footer-col a');
+    for (const link of links) {
+      if ((link.textContent || '').trim().toLowerCase() !== 'sign in') continue;
+      link.setAttribute('href', '/login');
+    }
+  }
+
+  function startFooterSignInPolicy() {
+    applyFooterSignInLinks();
+    const observer = new MutationObserver(() => applyFooterSignInLinks());
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  function startSharedPagePolicies() {
     startUploadOnlyMediaPolicy();
+    startFooterSignInPolicy();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startSharedPagePolicies, { once: true });
+  } else {
+    startSharedPagePolicies();
   }
 
   window.PrimePropClient = Object.freeze({
