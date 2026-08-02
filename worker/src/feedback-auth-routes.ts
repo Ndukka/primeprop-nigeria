@@ -16,23 +16,28 @@ import {
   oauthCookies,
   professionalConflict,
   randomBase64Url,
-  returnPathWithFeedbackStatus,
   reviewerEmailConflict,
   reviewerSessionCookies,
   revokeReviewerSession,
-  safeFeedbackReturnPath,
   sha256Base64Url,
   signFeedbackValue,
   timingSafeEqual,
-  validateReviewerCsrf,
   verifyFeedbackValue,
-  FEEDBACK_CSRF_COOKIE,
   FEEDBACK_OAUTH_NONCE_COOKIE,
   FEEDBACK_OAUTH_PKCE_COOKIE,
   FEEDBACK_OAUTH_RETURN_COOKIE,
   FEEDBACK_OAUTH_STATE_COOKIE,
   type FeedbackBindings,
 } from './feedback-policy';
+import {
+  ensureSessionCsrf,
+  reviewerRequestProof,
+  validateSessionCsrf,
+} from './feedback-csrf';
+import {
+  feedbackReturnWithStatus,
+  safeFeedbackReturn,
+} from './feedback-return';
 
 const GOOGLE_AUTHORIZATION_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -85,7 +90,7 @@ function relativeRedirect(location: string, status = 302): Response {
 
 function redirectWithClearedOauth(returnTo: string, status: string): Response {
   return appendSetCookies(
-    relativeRedirect(returnPathWithFeedbackStatus(returnTo, status)),
+    relativeRedirect(feedbackReturnWithStatus(returnTo, status)),
     clearOauthCookies(),
   );
 }
@@ -114,7 +119,7 @@ authRoutes.get('/feedback/google', async c => {
   const state = randomBase64Url(32);
   const nonce = randomBase64Url(32);
   const verifier = randomBase64Url(64);
-  const returnTo = safeFeedbackReturnPath(c.req.query('returnTo'));
+  const returnTo = safeFeedbackReturn(c.req.query('returnTo'));
   const challenge = await sha256Base64Url(verifier);
 
   const signed = {
@@ -145,7 +150,7 @@ authRoutes.get('/feedback/google/callback', async c => {
   const redirectUri = configuredFeedbackRedirect(env);
 
   const signedReturn = getCookie(c.req.raw, FEEDBACK_OAUTH_RETURN_COOKIE);
-  const returnTo = safeFeedbackReturnPath(
+  const returnTo = safeFeedbackReturn(
     signedReturn ? await verifyFeedbackValue(signedReturn, env.JWT_SECRET) : '',
   );
 
@@ -271,7 +276,7 @@ authRoutes.get('/feedback/google/callback', async c => {
   await env.DB.prepare('UPDATE reviewer_sessions SET revoked = 1 WHERE reviewer_id = ?')
     .bind(reviewer.id).run();
   const session = await issueReviewerSession(env, reviewer.id);
-  const response = relativeRedirect(returnPathWithFeedbackStatus(returnTo, 'success'));
+  const response = relativeRedirect(feedbackReturnWithStatus(returnTo, 'success'));
   return appendSetCookies(
     appendSetCookies(response, clearOauthCookies()),
     reviewerSessionCookies(session.token, session.csrf),
@@ -280,16 +285,20 @@ authRoutes.get('/feedback/google/callback', async c => {
 
 authRoutes.get('/feedback/session', async c => {
   c.header('Cache-Control', 'no-store');
-  const session = await findReviewerSession(c.req.raw, envFor(c));
+  const env = envFor(c);
+  const session = await findReviewerSession(c.req.raw, env);
   if (!session) {
     return c.json({ success: true, data: { authenticated: false } });
   }
-  return c.json({
+
+  const csrf = await ensureSessionCsrf(c.req.raw, env, session);
+  const response = c.json({
     success: true,
     data: {
       authenticated: true,
       reviewerLabel: maskReviewerEmail(session.email),
       expiresAt: session.expiresAt,
+      csrfToken: csrf.token,
       canSubmit: !session.banned && !session.professionalConflict,
       blockedReason: session.banned
         ? 'banned'
@@ -298,18 +307,18 @@ authRoutes.get('/feedback/session', async c => {
           : '',
     },
   });
+  return csrf.setCookie ? appendSetCookies(response, [csrf.setCookie]) : response;
 });
 
 authRoutes.post('/feedback/logout', async c => {
   const env = envFor(c);
   const requestError = feedbackWriteRequestError(c.req.raw, env);
   if (requestError) return c.json({ success: false, message: requestError }, 403);
-  const csrf = getCookie(c.req.raw, FEEDBACK_CSRF_COOKIE);
-  if (!csrf || c.req.header('Authorization') !== `Feedback ${csrf}`) {
+  if (!reviewerRequestProof(c.req.raw)) {
     return c.json({ success: false, message: 'Reviewer request proof is missing.' }, 403);
   }
   const session = await findReviewerSession(c.req.raw, env);
-  if (session && !await validateReviewerCsrf(c.req.raw, session)) {
+  if (session && !await validateSessionCsrf(c.req.raw, session)) {
     return c.json({ success: false, message: 'CSRF token mismatch.' }, 403);
   }
   await revokeReviewerSession(c.req.raw, env);

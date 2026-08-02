@@ -35,21 +35,22 @@
     return body.data;
   }
 
-  function intro(text) {
-    const paragraph = document.createElement('p');
-    paragraph.textContent = text;
-    paragraph.style.margin = '0 0 18px';
-    paragraph.style.color = '#475569';
-    paragraph.style.lineHeight = '1.55';
-    return paragraph;
+  function paragraph(text, className = '') {
+    const element = document.createElement('p');
+    if (className) element.className = className;
+    element.textContent = text;
+    element.style.margin = '0 0 18px';
+    element.style.color = '#475569';
+    element.style.lineHeight = '1.55';
+    return element;
   }
 
   async function openRating(data) {
-    const reviewer = await feedback.requireReviewer();
+    const reviewer = await feedback.requireReviewer(feedback.currentReturnPath('rate-agent'));
     if (!reviewer) return;
-    const modal = feedback.openDialog(`Rate ${data.agentName || 'this agent'}`);
-    modal.body.appendChild(intro(
-      `Your rating is linked to “${data.listingTitle}”. It will appear only after administrator review.`,
+    const modal = feedback.openDialog(`Rate and review ${data.agentName || 'this agent'}`);
+    modal.body.appendChild(paragraph(
+      `Your rating is linked to “${data.listingTitle}”. The score and optional comment appear only after separate administrator review.`,
     ));
 
     const score = document.createElement('select');
@@ -66,17 +67,18 @@
     comment.rows = 5;
     comment.maxLength = 1000;
     comment.placeholder = 'Optional: describe your experience. Do not include email addresses, telephone numbers or links.';
-    modal.body.appendChild(feedback.field('Comment', comment));
+    modal.body.appendChild(feedback.field('Review comment', comment));
 
-    const privacy = document.createElement('p');
-    privacy.textContent = `Submitting as ${reviewer.reviewerLabel}. The public profile will show only a server-masked version of this email.`;
-    privacy.style.fontSize = '.8rem';
-    privacy.style.color = '#64748b';
+    const privacy = paragraph(
+      `Submitting as ${reviewer.reviewerLabel}. The public profile shows only a server-masked version of this email.`,
+      'primeprop-feedback-privacy',
+    );
+    privacy.style.fontSize = '.82rem';
     modal.body.appendChild(privacy);
 
     const cancel = feedback.button('Cancel', 'btn btn-outline');
     cancel.addEventListener('click', () => modal.dialog.close());
-    const submit = feedback.button('Submit for review', 'btn btn-primary');
+    const submit = feedback.button('Submit rating and review', 'btn btn-primary');
     submit.addEventListener('click', async () => {
       submit.disabled = true;
       try {
@@ -98,22 +100,22 @@
   }
 
   async function openReport(targetType, targetId, targetLabel) {
-    const reviewer = await feedback.requireReviewer();
+    const action = targetType === 'listing' ? 'report-listing' : 'report-agent';
+    const reviewer = await feedback.requireReviewer(feedback.currentReturnPath(action));
     if (!reviewer) return;
     const modal = feedback.openDialog(`Report ${targetLabel}`);
-    modal.body.appendChild(intro(
+    modal.body.appendChild(paragraph(
       'Reports are private and reviewed by a PrimeProp administrator. A report does not automatically remove a listing or suspend an agent.',
     ));
 
-    const privacy = document.createElement('p');
-    privacy.textContent = `Submitting as ${reviewer.reviewerLabel}. Administrators can see the verified Google email used for this report and limited network evidence—IP address, country, browser signature and Cloudflare request ID—for investigation and abuse prevention. Exact network evidence is deleted 90 days after the case closes.`;
-    privacy.style.margin = '0 0 18px';
-    privacy.style.padding = '12px 14px';
-    privacy.style.borderRadius = '10px';
+    const privacy = paragraph(
+      `Submitting as ${reviewer.reviewerLabel}. Administrators can see the verified Google email used for this report and limited network evidence—IP address, country, browser signature and Cloudflare request ID—for investigation and abuse prevention. Exact network evidence is deleted 90 days after the case closes.`,
+      'primeprop-feedback-privacy',
+    );
+    privacy.style.padding = '14px 15px';
+    privacy.style.borderRadius = '12px';
     privacy.style.background = '#f8fafc';
-    privacy.style.color = '#475569';
     privacy.style.fontSize = '.82rem';
-    privacy.style.lineHeight = '1.5';
     modal.body.appendChild(privacy);
 
     const reason = document.createElement('select');
@@ -154,8 +156,9 @@
     modal.footer.append(cancel, submit);
   }
 
-  function actionButton(label, iconClass) {
-    const button = feedback.button('', 'btn btn-outline btn-sm');
+  function actionButton(label, iconClass, action) {
+    const button = feedback.button('', 'btn btn-outline btn-sm primeprop-feedback-action');
+    button.dataset.feedbackAction = action;
     button.style.width = '100%';
     button.style.justifyContent = 'center';
     const icon = document.createElement('i');
@@ -165,47 +168,72 @@
     return button;
   }
 
-  function apply(card, data) {
-    if (applied || card.dataset.feedbackActions === 'true') return;
-    applied = true;
-    card.dataset.feedbackActions = 'true';
+  function actionHost() {
+    return document.querySelector('#detailContent .detail-sidebar .detail-contact-card')
+      || document.querySelector('.detail-sidebar .detail-contact-card')
+      || document.querySelector('#detailContent .detail-sidebar')
+      || document.querySelector('.detail-sidebar')
+      || document.getElementById('detailContent');
+  }
 
-    const divider = document.createElement('div');
-    divider.style.height = '1px';
-    divider.style.background = '#e2e8f0';
-    divider.style.margin = '16px 0';
-    const label = document.createElement('p');
-    label.textContent = 'Feedback and safety';
-    label.style.margin = '0 0 10px';
-    label.style.fontWeight = '750';
-    label.style.fontSize = '.82rem';
-    label.style.color = '#334155';
+  function apply(host, data) {
+    if (applied || host.dataset.feedbackActions === 'true') return;
+    applied = true;
+    host.dataset.feedbackActions = 'true';
+
+    const panel = document.createElement('section');
+    panel.className = 'primeprop-listing-feedback-panel';
+    panel.setAttribute('aria-label', 'Ratings, reviews and safety');
+    panel.style.marginTop = '18px';
+    panel.style.paddingTop = '18px';
+    panel.style.borderTop = '1px solid #e2e8f0';
+
+    const label = document.createElement('h3');
+    label.textContent = 'Ratings, reviews and safety';
+    label.style.margin = '0 0 6px';
+    label.style.fontSize = '.95rem';
+    label.style.color = '#0f172a';
+    const description = paragraph(
+      'Share a moderated experience or privately flag a listing or agent for administrator review.',
+    );
+    description.style.fontSize = '.8rem';
+    description.style.marginBottom = '12px';
     const actions = document.createElement('div');
     actions.style.display = 'grid';
     actions.style.gap = '8px';
 
     if (data.rateable && data.agentId) {
-      const rate = actionButton('Rate this agent', 'fa-solid fa-star');
+      const rate = actionButton('Rate & review this agent', 'fa-solid fa-star', 'rate-agent');
       rate.addEventListener('click', () => openRating(data));
-      const reportAgent = actionButton('Report this agent', 'fa-regular fa-flag');
+      const reportAgent = actionButton('Report this agent', 'fa-regular fa-flag', 'report-agent');
       reportAgent.addEventListener('click', () => openReport('agent', data.agentId, data.agentName || 'this agent'));
       actions.append(rate, reportAgent);
+    } else {
+      const unavailable = paragraph(
+        'Ratings are unavailable for this listing because it is not linked to a registered, active and published agent profile.',
+      );
+      unavailable.style.padding = '11px 12px';
+      unavailable.style.marginBottom = '8px';
+      unavailable.style.borderRadius = '10px';
+      unavailable.style.background = '#f8fafc';
+      unavailable.style.fontSize = '.78rem';
+      actions.appendChild(unavailable);
     }
 
-    const reportListing = actionButton('Report this listing', 'fa-solid fa-triangle-exclamation');
+    const reportListing = actionButton('Report this listing', 'fa-solid fa-triangle-exclamation', 'report-listing');
     reportListing.addEventListener('click', () => openReport('listing', data.listingId, 'this listing'));
     actions.appendChild(reportListing);
-    card.append(divider, label, actions);
+    panel.append(label, description, actions);
+    host.appendChild(panel);
   }
 
   async function tryApply() {
     if (applied) return;
     const id = listingId();
-    const card = document.querySelector('#detailContent .detail-sidebar .detail-contact-card')
-      || document.querySelector('.detail-sidebar .detail-contact-card');
-    if (!id || !card) return;
+    const host = actionHost();
+    if (!id || !host) return;
     try {
-      apply(card, await context(id));
+      apply(host, await context(id));
     } catch (error) {
       console.error('Listing feedback controls could not be prepared.', error);
     }

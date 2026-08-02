@@ -433,6 +433,20 @@ The file exists to make recurrence inexpensive: a future engineer should be able
   ```
   Confirm `dynamic_runtime_assets_versioned` is printed and the static test suite reports no unversioned runtime URL.
 
+## PP-ERR-047: Reviewer feedback returned a CSRF mismatch and lost the intended form after Google sign-in
+
+- **Status**: Resolved in source; deploy the current hotfix through the fail-closed release command.
+- **First observed**: After the Google reviewer rating and reporting feature was activated on 2026-08-02.
+- **Symptoms**: Submitting `/auth/feedback/reports` or `/auth/feedback/ratings` returned HTTP 403 with `CSRF token mismatch`; Google authentication returned to the listing or profile but did not automatically reopen the selected report or rating form; rating controls, the approved-score summary, or approved comments could disappear when a page layout did not contain one exact selector.
+- **Root cause**: Reviewer writes used a double-submit check that required a JavaScript-readable CSRF cookie, the request header, and the database session hash to match simultaneously. A stale or duplicate readable cookie could conflict with the valid HttpOnly reviewer session. The OAuth return-path allowlist did not carry a bounded action identifier, and the frontend insertion code failed silently when exact contact-card, hero-action, or listing-section elements were absent.
+- **Repair**: The authenticated no-store `/auth/feedback/session` endpoint now returns a session-bound synchronizer token and repairs a stale readable cookie by rotating the database hash. Writes prove the same token in `X-CSRF-Token` and `Authorization: Feedback ...`, retain exact Origin and same-site checks, and retry once only after resynchronizing the authenticated session. OAuth preserves only `rate-agent`, `report-agent`, or `report-listing` on allowlisted profile/listing routes; the client automatically reopens that form after Google returns. Feedback dialogs use a centered responsive modal shell. Listing and agent-profile controls use resilient insertion points and always render a ratings/comments section or an explicit legacy-identity explanation.
+- **Prevention**: Worker tests reproduce a stale readable cookie and require session repair plus a successful protected write; source tests require session-bound proof, one bounded retry, exact Origin enforcement, allowlisted automatic Google return, centered dialog structure, visible rating/review controls, approved-comment rendering, and this error-bank entry.
+- **Immediate diagnosis**:
+  ```bash
+  cd "$(git rev-parse --show-toplevel)/worker"
+  npm run test:worker -- --run tests/feedback-csrf-runtime.test.ts
+  ```
+
 ---
 
 ## Mandatory validation sequence
