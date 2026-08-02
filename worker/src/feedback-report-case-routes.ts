@@ -1,3 +1,4 @@
+import type { D1Database } from '@cloudflare/workers-types';
 import { authRoutes, requireAuth, requireRole } from './auth';
 import { sanitizePositiveInt } from './utils';
 import { sanitizeFeedbackText } from './feedback-policy';
