@@ -5,3 +5,4 @@ import './feedback-auth-routes';
 import './feedback-public-routes';
 import './feedback-write-routes';
 import './feedback-admin-routes';
+import './feedback-report-case-routes';

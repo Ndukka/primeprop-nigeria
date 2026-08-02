@@ -17,10 +17,42 @@ export function setFeedbackNoStore(c: any): void {
   c.header('Cache-Control', 'no-store');
 }
 
+function sanitizeSingleLineHeader(value: string, maxLength: number): string {
+  return value
+    .replace(/[\u0000-\u001F\u007F]/g, '')
+    .trim()
+    .slice(0, maxLength);
+}
+
+function normalizeTrustedIp(value: string): string {
+  const candidate = sanitizeSingleLineHeader(value, 64);
+  if (!candidate || !/^[0-9A-Fa-f:.]+$/.test(candidate)) return '';
+  if (candidate.includes(':')) return candidate;
+  const parts = candidate.split('.');
+  if (parts.length !== 4) return '';
+  if (parts.some(part => !/^\d{1,3}$/.test(part) || Number(part) > 255)) return '';
+  return parts.map(part => String(Number(part))).join('.');
+}
+
 export function feedbackRequestIp(c: any): string {
-  return c.req.header('CF-Connecting-IP')
-    || c.req.header('X-Forwarded-For')
-    || 'unknown';
+  // Cloudflare documents CF-Connecting-IP as the single original client IP at
+  // the edge. Do not fall back to X-Forwarded-For, which can contain a chain
+  // and is not an appropriate moderation identity signal.
+  return normalizeTrustedIp(c.req.header('CF-Connecting-IP') || '') || 'unknown';
+}
+
+export function feedbackRequestCountry(c: any): string {
+  const country = sanitizeSingleLineHeader(c.req.header('CF-IPCountry') || '', 2).toUpperCase();
+  return /^[A-Z0-9]{2}$/.test(country) ? country : '';
+}
+
+export function feedbackRequestUserAgent(c: any): string {
+  return sanitizeSingleLineHeader(c.req.header('User-Agent') || '', 300);
+}
+
+export function feedbackRequestId(c: any): string {
+  const requestId = sanitizeSingleLineHeader(c.req.header('CF-Ray') || '', 64);
+  return /^[A-Za-z0-9-]+$/.test(requestId) ? requestId : '';
 }
 
 function hasProfessionalSessionCookie(request: Request): boolean {
