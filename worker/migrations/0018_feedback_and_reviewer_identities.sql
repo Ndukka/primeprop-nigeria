@@ -136,10 +136,12 @@ CREATE INDEX IF NOT EXISTS idx_moderation_reports_agent
 -- Database-level rating eligibility. Application checks provide friendly
 -- errors, while these triggers prevent an invalid direct write or future route
 -- regression from publishing professional-account or mismatched-listing votes.
+-- D1's remote SQL parser can misread an unparenthesized CASE ... END inside a
+-- trigger as the trigger terminator. Keep each CASE expression parenthesized.
 CREATE TRIGGER IF NOT EXISTS trg_agent_rating_eligibility_insert
 BEFORE INSERT ON agent_ratings
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT (CASE WHEN NOT EXISTS (
     SELECT 1
     FROM reviewer_identities reviewer
     WHERE reviewer.id = NEW.reviewer_id
@@ -148,28 +150,28 @@ BEGIN
         WHERE professional.google_id = reviewer.google_sub
            OR lower(professional.email) = reviewer.email_normalized
       )
-  ) THEN RAISE(ABORT, 'reviewer conflicts with professional account') END;
+  ) THEN RAISE(ABORT, 'reviewer conflicts with professional account') END);
 
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT (CASE WHEN NOT EXISTS (
     SELECT 1 FROM users agent
     WHERE agent.id = NEW.agent_user_id
       AND agent.role = 'agent'
       AND COALESCE(agent.account_status, 'active') = 'active'
       AND COALESCE(agent.profile_published, 0) = 1
-  ) THEN RAISE(ABORT, 'agent is not publicly rateable') END;
+  ) THEN RAISE(ABORT, 'agent is not publicly rateable') END);
 
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT (CASE WHEN NOT EXISTS (
     SELECT 1 FROM listings listing
     WHERE listing.id = NEW.source_listing_id
       AND listing.created_by = NEW.agent_user_id
       AND listing.approval_status = 'approved'
-  ) THEN RAISE(ABORT, 'source listing is not eligible') END;
+  ) THEN RAISE(ABORT, 'source listing is not eligible') END);
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_agent_rating_eligibility_update
 BEFORE UPDATE OF reviewer_id, agent_user_id, source_listing_id, score ON agent_ratings
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT (CASE WHEN NOT EXISTS (
     SELECT 1
     FROM reviewer_identities reviewer
     WHERE reviewer.id = NEW.reviewer_id
@@ -178,20 +180,20 @@ BEGIN
         WHERE professional.google_id = reviewer.google_sub
            OR lower(professional.email) = reviewer.email_normalized
       )
-  ) THEN RAISE(ABORT, 'reviewer conflicts with professional account') END;
+  ) THEN RAISE(ABORT, 'reviewer conflicts with professional account') END);
 
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT (CASE WHEN NOT EXISTS (
     SELECT 1 FROM users agent
     WHERE agent.id = NEW.agent_user_id
       AND agent.role = 'agent'
       AND COALESCE(agent.account_status, 'active') = 'active'
       AND COALESCE(agent.profile_published, 0) = 1
-  ) THEN RAISE(ABORT, 'agent is not publicly rateable') END;
+  ) THEN RAISE(ABORT, 'agent is not publicly rateable') END);
 
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT (CASE WHEN NOT EXISTS (
     SELECT 1 FROM listings listing
     WHERE listing.id = NEW.source_listing_id
       AND listing.created_by = NEW.agent_user_id
       AND listing.approval_status = 'approved'
-  ) THEN RAISE(ABORT, 'source listing is not eligible') END;
+  ) THEN RAISE(ABORT, 'source listing is not eligible') END);
 END;
