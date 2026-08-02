@@ -71,6 +71,36 @@ function normalizeApplicationPath(request: Request): Request {
   return new Request(url.toString(), request);
 }
 
+function routeListingApprovalBoundary(request: Request): Request {
+  const url = new URL(request.url);
+  const method = request.method.toUpperCase();
+  const safeRead = method === 'GET' || method === 'HEAD';
+
+  if (url.pathname === '/api/stats' && safeRead) {
+    url.pathname = '/auth/public-listing-stats';
+    return new Request(url.toString(), request);
+  }
+
+  if (url.pathname === '/api/listings') {
+    if (safeRead) url.pathname = '/auth/public-listings';
+    else if (method === 'POST') url.pathname = '/auth/listing-records';
+    else return request;
+    return new Request(url.toString(), request);
+  }
+
+  const listingMatch = url.pathname.match(/^\/api\/listings\/(.+)$/);
+  if (!listingMatch) return request;
+
+  if (safeRead) {
+    url.pathname = `/auth/public-listings/${listingMatch[1]}`;
+  } else if (method === 'PUT' || method === 'DELETE') {
+    url.pathname = `/auth/listing-records/${listingMatch[1]}`;
+  } else {
+    return request;
+  }
+  return new Request(url.toString(), request);
+}
+
 function canonicalPageRedirect(request: Request): Response | null {
   if (!['GET', 'HEAD'].includes(request.method)) return null;
   const url = new URL(request.url);
@@ -235,6 +265,7 @@ async function handleStorageAudit(request: Request, env: Bindings): Promise<Resp
 export default {
   async fetch(request: Request, env: Bindings, ctx: ExecutionContext): Promise<Response> {
     request = normalizeApplicationPath(request);
+    request = routeListingApprovalBoundary(request);
     const canonicalRedirect = canonicalPageRedirect(request);
     if (canonicalRedirect) return canonicalRedirect;
 
