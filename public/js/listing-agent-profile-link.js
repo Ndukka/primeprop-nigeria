@@ -48,28 +48,16 @@
     applied = true;
     card.dataset.agentProfileId = String(agentId);
     card.classList.add('agent-card-linkable');
-    card.tabIndex = 0;
-    card.setAttribute('role', 'link');
-    card.setAttribute('aria-label', 'View full agent profile');
     card.style.cursor = 'pointer';
     card.style.transition = 'transform .2s ease, box-shadow .2s ease, border-color .2s ease';
 
     const url = `/agent-profile?id=${encodeURIComponent(agentId)}`;
-    const open = () => window.location.assign(url);
     card.addEventListener('click', event => {
       if (event.target.closest('a, button, input, select, textarea')) return;
-      open();
-    });
-    card.addEventListener('keydown', event => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      if (event.target.closest('a, button, input, select, textarea')) return;
-      event.preventDefault();
-      open();
+      window.location.assign(url);
     });
     card.addEventListener('mouseenter', () => emphasizeCard(card));
     card.addEventListener('mouseleave', () => resetCardStyle(card));
-    card.addEventListener('focus', () => emphasizeCard(card));
-    card.addEventListener('blur', () => resetCardStyle(card));
 
     if (!card.querySelector('.agent-profile-card-link')) {
       const link = document.createElement('a');
@@ -86,6 +74,7 @@
       link.style.fontWeight = '700';
       const icon = document.createElement('i');
       icon.className = 'fa-solid fa-user-check';
+      icon.setAttribute('aria-hidden', 'true');
       link.append(icon, document.createTextNode(' View full agent profile'));
       card.appendChild(link);
     }
