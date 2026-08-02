@@ -19,6 +19,7 @@ export default defineConfig({
       'tests/listing-approval-regressions.test.ts',
       'tests/feedback-regressions.test.ts',
       'tests/feedback-ux-csrf-regressions.test.ts',
+      'tests/session-refresh-regressions.test.ts',
       'tests/cache-coherency-regressions.test.ts',
     ],
     testTimeout: 30000,
