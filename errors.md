@@ -447,6 +447,20 @@ The file exists to make recurrence inexpensive: a future engineer should be able
   npm run test:worker -- --run tests/feedback-csrf-runtime.test.ts
   ```
 
+## PP-ERR-048: A stale professional CSRF cookie intercepted reviewer ratings and reports
+
+- **Status**: Resolved in source; deploy the current hotfix through the fail-closed release command.
+- **First observed**: After PP-ERR-047 was deployed and reviewer writes could still return HTTP 403 from `feedback-client`.
+- **Symptoms**: Listing reports remained stuck on submit with HTTP 403. Agent ratings and ratings containing written review comments could fail through the same endpoint boundary even after `/auth/feedback/session` returned a synchronized reviewer token.
+- **Root cause**: Every `/auth/feedback/*` write first passed through the older professional-account CSRF middleware. If the browser retained a stale `pp_csrf` cookie from an earlier administrator or agent session, that middleware compared the professional cookie with the reviewer `X-CSRF-Token` and rejected the request before the dedicated reviewer-session CSRF validator ran. The response used the older `CSRF token mismatch` message, so the reviewer client's bounded resynchronization branch did not apply. Reports, ratings, rating comments and reviewer logout shared this collision.
+- **Repair**: The production request boundary now isolates only the exact public reviewer write routes `/auth/feedback/ratings`, `/auth/feedback/reports`, and `/auth/feedback/logout` when they carry `Authorization: Feedback ...`. It removes only the unrelated `pp_csrf` cookie before dispatch. Reviewer session and reviewer CSRF cookies remain unchanged. Professional `pp_session` and `pp_refresh` cookies also remain, so the dedicated feedback guard still blocks administrators and agents. Administrator feedback moderation routes continue through the professional CSRF boundary unchanged.
+- **Prevention**: Worker runtime coverage submits a rating with a written comment, a listing report, and reviewer logout while both the readable reviewer CSRF cookie and professional `pp_csrf` cookie are stale; all must pass only with the synchronized reviewer header proof. Source tests require the exact three-route allowlist, `Feedback` authorization check, removal of only `pp_csrf`, and exclusion of administrator feedback routes.
+- **Immediate diagnosis**:
+  ```bash
+  cd "$(git rev-parse --show-toplevel)/worker"
+  npm run test:worker -- --run tests/feedback-csrf-runtime.test.ts
+  ```
+
 ---
 
 ## Mandatory validation sequence

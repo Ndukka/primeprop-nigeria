@@ -40,6 +40,19 @@ describe('feedback CSRF recovery and frontend contracts', () => {
     expect(policy).toContain("if (!isAllowedFeedbackOrigin(request.headers.get('Origin'), env))");
   });
 
+  it('isolates reviewer writes from stale professional CSRF cookies only', () => {
+    const production = source('worker/src/production-entry.ts');
+
+    expect(production).toContain('const REVIEWER_WRITE_PATHS = new Set([');
+    expect(production).toContain("'/auth/feedback/ratings'");
+    expect(production).toContain("'/auth/feedback/reports'");
+    expect(production).toContain("'/auth/feedback/logout'");
+    expect(production).toContain("authorization.startsWith('Feedback ')");
+    expect(production).toContain(".filter(part => !part.startsWith('pp_csrf='))");
+    expect(production).toContain('request = isolateReviewerCsrfBoundary(request)');
+    expect(production).not.toContain("'/auth/feedback/admin/");
+  });
+
   it('preserves only allowlisted feedback actions through Google OAuth', () => {
     const returns = source('worker/src/feedback-return.ts');
     const client = source('public/js/feedback-client.js');
@@ -74,10 +87,12 @@ describe('feedback CSRF recovery and frontend contracts', () => {
     expect(agent).toContain('Ratings are unavailable for this legacy listing profile');
   });
 
-  it('records the incident in the permanent error bank', () => {
+  it('records both reviewer CSRF incidents in the permanent error bank', () => {
     const errors = source('errors.md');
     expect(errors).toContain('PP-ERR-047');
+    expect(errors).toContain('PP-ERR-048');
     expect(errors).toContain('CSRF token mismatch');
     expect(errors).toContain('automatic Google return');
+    expect(errors).toContain('stale professional CSRF cookie');
   });
 });

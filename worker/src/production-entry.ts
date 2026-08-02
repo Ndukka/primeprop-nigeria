@@ -47,6 +47,11 @@ const CLEAN_PAGE_PATHS = new Set([
   '/agent',
   '/reset-password',
 ]);
+const REVIEWER_WRITE_PATHS = new Set([
+  '/auth/feedback/ratings',
+  '/auth/feedback/reports',
+  '/auth/feedback/logout',
+]);
 
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -104,6 +109,33 @@ function routeListingApprovalBoundary(request: Request): Request {
     return request;
   }
   return new Request(url.toString(), request);
+}
+
+function isolateReviewerCsrfBoundary(request: Request): Request {
+  const path = new URL(request.url).pathname;
+  if (!REVIEWER_WRITE_PATHS.has(path)) return request;
+
+  const authorization = request.headers.get('Authorization') || '';
+  if (!authorization.startsWith('Feedback ')) return request;
+
+  const cookieHeader = request.headers.get('Cookie') || '';
+  if (!/(?:^|;\s*)pp_csrf=/.test(cookieHeader)) return request;
+
+  const retainedCookies = cookieHeader
+    .split(';')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .filter(part => !part.startsWith('pp_csrf='));
+  const headers = new Headers(request.headers);
+  if (retainedCookies.length > 0) headers.set('Cookie', retainedCookies.join('; '));
+  else headers.delete('Cookie');
+
+  // Public reviewers use their own HttpOnly session and session-bound CSRF
+  // proof. Removing only the unrelated professional CSRF cookie prevents the
+  // legacy professional middleware from rejecting that proof first. Any
+  // professional session cookies remain visible to the dedicated feedback
+  // guard, which still blocks administrators and agents from public feedback.
+  return new Request(request, { headers });
 }
 
 function canonicalPageRedirect(request: Request): Response | null {
@@ -341,6 +373,7 @@ export default {
   async fetch(request: Request, env: Bindings, ctx: ExecutionContext): Promise<Response> {
     request = normalizeApplicationPath(request);
     request = routeListingApprovalBoundary(request);
+    request = isolateReviewerCsrfBoundary(request);
     const canonicalRedirect = canonicalPageRedirect(request);
     if (canonicalRedirect) return canonicalRedirect;
 
