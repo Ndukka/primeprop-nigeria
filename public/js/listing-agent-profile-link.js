@@ -19,6 +19,18 @@
     return Number.isSafeInteger(agentId) && agentId > 0 ? agentId : null;
   }
 
+  function resetCardStyle(card) {
+    card.style.transform = '';
+    card.style.boxShadow = '';
+    card.style.borderColor = '';
+  }
+
+  function emphasizeCard(card) {
+    card.style.transform = 'translateY(-2px)';
+    card.style.boxShadow = '0 8px 24px rgba(0,0,0,0.06)';
+    card.style.borderColor = '#cbd5e1';
+  }
+
   function applyLink(card, agentId) {
     if (applied || card.dataset.agentProfileId) return;
     applied = true;
@@ -27,6 +39,8 @@
     card.tabIndex = 0;
     card.setAttribute('role', 'link');
     card.setAttribute('aria-label', 'View full agent profile');
+    card.style.cursor = 'pointer';
+    card.style.transition = 'transform .2s ease, box-shadow .2s ease, border-color .2s ease';
 
     const url = `/agent-profile?id=${encodeURIComponent(agentId)}`;
     const open = () => window.location.assign(url);
@@ -40,11 +54,24 @@
       event.preventDefault();
       open();
     });
+    card.addEventListener('mouseenter', () => emphasizeCard(card));
+    card.addEventListener('mouseleave', () => resetCardStyle(card));
+    card.addEventListener('focus', () => emphasizeCard(card));
+    card.addEventListener('blur', () => resetCardStyle(card));
 
     if (!card.querySelector('.agent-profile-card-link')) {
       const link = document.createElement('a');
       link.className = 'agent-profile-card-link';
       link.href = url;
+      link.style.display = 'inline-flex';
+      link.style.alignItems = 'center';
+      link.style.justifyContent = 'center';
+      link.style.gap = '7px';
+      link.style.width = '100%';
+      link.style.marginTop = '12px';
+      link.style.color = '#0f172a';
+      link.style.fontSize = '.84rem';
+      link.style.fontWeight = '700';
       const icon = document.createElement('i');
       icon.className = 'fa-solid fa-user-check';
       link.append(icon, document.createTextNode(' View full agent profile'));
