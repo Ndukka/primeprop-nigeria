@@ -31,6 +31,7 @@ export default defineConfig({
       'tests/admin-inventory-runtime.test.ts',
       'tests/admin-user-lookup-runtime.test.ts',
       'tests/listing-contact-profile-runtime.test.ts',
+      'tests/listing-approval-runtime.test.ts',
     ],
     setupFiles: ['./tests/setup-worker.ts'],
     testTimeout: 30000,
