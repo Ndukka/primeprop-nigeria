@@ -27,6 +27,7 @@ export function isYouTube(url: string): boolean {
 export function rowToListing(row: any, isAdmin: boolean = false) {
   if (!row) return null;
   const agentName = row.agent_name || '';
+  const ownerId = Number(row.created_by || 0);
 
   // Base fields always safe for public. Public catalogue routes only return
   // approved rows, while the same DTO lets an agent see their own pending state.
@@ -59,6 +60,7 @@ export function rowToListing(row: any, isAdmin: boolean = false) {
             url.match(/\.(pdf)(\?|$)/i) ? 'pdf' : 'image'
     })),
     agent: {
+      id: ownerId > 0 ? ownerId : null,
       name: agentName,
       role: row.agent_role || '',
       phone: '',  // PP-SEC-020: Agent phone is admin-only
