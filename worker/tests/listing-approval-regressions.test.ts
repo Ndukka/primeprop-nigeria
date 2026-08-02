@@ -19,6 +19,15 @@ function generatedSource(sourcePath: string): string {
   return readFileSync(resolve(DIST_DIR, generated.replace(/^\//, '')), 'utf8');
 }
 
+function generatedAssetUrl(sourcePath: string): string {
+  const manifest = JSON.parse(
+    readFileSync(resolve(DIST_DIR, 'asset-manifest.json'), 'utf8'),
+  ) as { assets: Record<string, string> };
+  const generated = manifest.assets[sourcePath];
+  expect(generated, `${sourcePath} must be emitted`).toBeTruthy();
+  return generated;
+}
+
 function generatedPage(relativePath: string): string {
   return readFileSync(resolve(DIST_DIR, relativePath), 'utf8');
 }
@@ -134,17 +143,22 @@ describe('agent listing approval source safeguards', () => {
     const listingPage = generatedPage('listing-detail.html');
     const agentPage = generatedPage('agent.html');
     const adminPage = generatedPage('admin.html');
+    const profileCssUrl = generatedAssetUrl('agent-profile.css');
+    const profileClientUrl = generatedAssetUrl('js/agent-profile.js');
+    const listingLinkUrl = generatedAssetUrl('js/listing-agent-profile-link.js');
+    const agentEditorUrl = generatedAssetUrl('js/agent-profile-editor.js');
+    const adminEditorUrl = generatedAssetUrl('js/admin-agent-profile-editor.js');
     const profileClient = generatedSource('js/agent-profile.js');
     const listingLink = generatedSource('js/listing-agent-profile-link.js');
     const agentEditor = generatedSource('js/agent-profile-editor.js');
     const adminEditor = generatedSource('js/admin-agent-profile-editor.js');
 
     expect(page).toContain('id="agentProfileContent"');
-    expect(page).toContain('agent-profile.css');
-    expect(page).toContain('agent-profile.js');
-    expect(listingPage).toContain('listing-agent-profile-link.js');
-    expect(agentPage).toContain('agent-profile-editor.js');
-    expect(adminPage).toContain('admin-agent-profile-editor.js');
+    expect(page).toContain(profileCssUrl);
+    expect(page).toContain(profileClientUrl);
+    expect(listingPage).toContain(listingLinkUrl);
+    expect(agentPage).toContain(agentEditorUrl);
+    expect(adminPage).toContain(adminEditorUrl);
     expect(profileClient).toContain('/auth/public-agents/${encodeURIComponent(id)}');
     expect(profileClient).toContain('Active listings');
     expect(listingLink).toContain("#detailContent .detail-sidebar .detail-contact-card");
