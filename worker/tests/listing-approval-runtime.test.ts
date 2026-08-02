@@ -54,6 +54,14 @@ async function publicTotal(): Promise<number> {
   return body.data.total;
 }
 
+async function setUserStatus(admin: LoginSession, userId: number, accountStatus: 'active' | 'banned') {
+  return workerFetch(`/auth/users/${userId}`, {
+    method: 'PUT',
+    headers: mutationHeaders(admin, true),
+    body: JSON.stringify({ account_status: accountStatus }),
+  });
+}
+
 function listingBody(title: string) {
   return {
     title,
@@ -211,8 +219,102 @@ describe.sequential('administrator-controlled listing publication', () => {
         await testEnv.DB.prepare('DELETE FROM listings WHERE id = ?').bind(listingId).run();
       }
       await testEnv.DB.prepare(
-        "UPDATE users SET agent_title = 'Service Apartment Specialist' WHERE id = 2",
+        "UPDATE users SET account_status = 'active', agent_title = 'Service Apartment Specialist' WHERE id = 2",
       ).run();
+    }
+  });
+
+  it('blocks a banned account and pauses every listing surface until unban', async () => {
+    const agent = await loginSession('test-agent@primeprop.invalid', 'TestAgent123!');
+    const admin = await loginSession('test-admin@primeprop.invalid', 'TestAdmin123!');
+    const baselineTotal = await publicTotal();
+    const title = `Suspended owner ${crypto.randomUUID()}`;
+    let listingId = 0;
+
+    try {
+      const create = await workerFetch('/api/listings', {
+        method: 'POST',
+        headers: mutationHeaders(agent, true),
+        body: JSON.stringify(listingBody(title)),
+      });
+      expect(create.status).toBe(201);
+      listingId = ((await create.json()) as { data: { id: number } }).data.id;
+
+      const approve = await workerFetch(`/auth/admin-listings/${listingId}/approval`, {
+        method: 'PUT',
+        headers: mutationHeaders(admin, true),
+        body: JSON.stringify({ approvalStatus: 'approved' }),
+      });
+      expect(approve.status).toBe(200);
+      expect((await workerFetch(`/api/listings/${listingId}`)).status).toBe(200);
+      expect(await publicTotal()).toBe(baselineTotal + 1);
+
+      const ban = await setUserStatus(admin, 2, 'banned');
+      expect(ban.status).toBe(200);
+
+      const activeSessions = await testEnv.DB.prepare(
+        'SELECT COUNT(*) AS c FROM sessions WHERE user_id = 2 AND revoked = 0',
+      ).first<{ c: number }>();
+      expect(activeSessions?.c || 0).toBe(0);
+
+      const [owned, detail, contact, search] = await Promise.all([
+        workerFetch('/auth/my-listings', { headers: { Cookie: agent.cookies } }),
+        workerFetch(`/api/listings/${listingId}`),
+        workerFetch(`/auth/listing-contact/${listingId}/whatsapp`, { redirect: 'manual' }),
+        workerFetch(`/api/listings?search=${encodeURIComponent(title)}`),
+      ]);
+      expect(owned.status).toBe(401);
+      expect(detail.status).toBe(404);
+      expect(contact.status).toBe(404);
+      expect(((await search.json()) as { count: number }).count).toBe(0);
+      expect(await publicTotal()).toBe(baselineTotal);
+
+      const inventory = await workerFetch('/auth/admin-listings?limit=100', {
+        headers: { Cookie: admin.cookies },
+      });
+      expect(inventory.status).toBe(200);
+      const inventoryBody = await inventory.json() as {
+        data: Array<{ id: number; approvalStatus: string }>;
+      };
+      expect(inventoryBody.data).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: listingId, approvalStatus: 'approved' }),
+      ]));
+
+      const pause = await workerFetch(`/auth/admin-listings/${listingId}/approval`, {
+        method: 'PUT',
+        headers: mutationHeaders(admin, true),
+        body: JSON.stringify({ approvalStatus: 'pending' }),
+      });
+      expect(pause.status).toBe(200);
+
+      const approveWhileBanned = await workerFetch(`/auth/admin-listings/${listingId}/approval`, {
+        method: 'PUT',
+        headers: mutationHeaders(admin, true),
+        body: JSON.stringify({ approvalStatus: 'approved' }),
+      });
+      expect(approveWhileBanned.status).toBe(409);
+
+      await expect(
+        testEnv.DB.prepare(
+          `UPDATE listings
+           SET approval_status = 'approved', approved_by = 1, approved_at = datetime('now')
+           WHERE id = ?`,
+        ).bind(listingId).run(),
+      ).rejects.toThrow(/owner must be active/i);
+
+      const unban = await setUserStatus(admin, 2, 'active');
+      expect(unban.status).toBe(200);
+      const publishAgain = await workerFetch(`/auth/admin-listings/${listingId}/approval`, {
+        method: 'PUT',
+        headers: mutationHeaders(admin, true),
+        body: JSON.stringify({ approvalStatus: 'approved' }),
+      });
+      expect(publishAgain.status).toBe(200);
+      expect((await workerFetch(`/api/listings/${listingId}`)).status).toBe(200);
+      expect(await publicTotal()).toBe(baselineTotal + 1);
+    } finally {
+      await testEnv.DB.prepare("UPDATE users SET account_status = 'active' WHERE id = 2").run();
+      if (listingId) await testEnv.DB.prepare('DELETE FROM listings WHERE id = ?').bind(listingId).run();
     }
   });
 
@@ -261,5 +363,14 @@ describe.sequential('administrator-controlled listing publication', () => {
     } finally {
       if (id) await testEnv.DB.prepare('DELETE FROM listings WHERE id = ?').bind(id).run();
     }
+  });
+
+  it('cannot suspend or demote the final active administrator', async () => {
+    await expect(
+      testEnv.DB.prepare("UPDATE users SET account_status = 'banned' WHERE id = 1").run(),
+    ).rejects.toThrow(/last active administrator/i);
+    await expect(
+      testEnv.DB.prepare("UPDATE users SET role = 'agent' WHERE id = 1").run(),
+    ).rejects.toThrow(/last active administrator/i);
   });
 });

@@ -116,7 +116,16 @@ async function listingContact(c: any, id: number): Promise<ListingContactRow | n
        ON u.id = l.created_by
       AND COALESCE(u.account_status, 'active') = 'active'
      WHERE l.id = ?
-       AND l.approval_status = 'approved'`,
+       AND l.approval_status = 'approved'
+       AND (
+         l.created_by IS NULL
+         OR EXISTS (
+           SELECT 1
+           FROM users owner
+           WHERE owner.id = l.created_by
+             AND COALESCE(owner.account_status, 'active') = 'active'
+         )
+       )`,
   ).bind(id).first();
   return row as ListingContactRow | null;
 }

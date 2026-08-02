@@ -3,6 +3,15 @@ import { rowToListing, sanitizePositiveInt } from './utils';
 
 const VALID_TYPES = ['rent', 'sale', 'land'] as const;
 const VALID_SORT = ['price-asc', 'price-desc', 'newest', 'featured'] as const;
+const ACTIVE_OWNER_PREDICATE = `(
+  l.created_by IS NULL
+  OR EXISTS (
+    SELECT 1
+    FROM users owner
+    WHERE owner.id = l.created_by
+      AND COALESCE(owner.account_status, 'active') = 'active'
+  )
+)`;
 
 type ListingType = typeof VALID_TYPES[number];
 type ListingSort = typeof VALID_SORT[number];
@@ -16,45 +25,45 @@ function sanitizeEnum<T extends string>(value: unknown, allowed: readonly T[], f
 }
 
 function approvedListingWhere(query: Record<string, string>) {
-  const clauses = ["approval_status = 'approved'"];
+  const clauses = ["l.approval_status = 'approved'", ACTIVE_OWNER_PREDICATE];
   const parameters: unknown[] = [];
 
   const type = sanitizeEnum<ListingType | 'all'>(query.type, ['all', ...VALID_TYPES], 'all');
   if (type !== 'all') {
-    clauses.push('type = ?');
+    clauses.push('l.type = ?');
     parameters.push(type);
   }
   if (query.city) {
-    clauses.push('city = ?');
+    clauses.push('l.city = ?');
     parameters.push(sanitizeString(query.city, 100));
   }
   if (query.area) {
-    clauses.push("instr(lower(COALESCE(area, '')), lower(?)) > 0");
+    clauses.push("instr(lower(COALESCE(l.area, '')), lower(?)) > 0");
     parameters.push(sanitizeString(query.area, 100));
   }
   if (query.minPrice) {
-    clauses.push('price >= ?');
+    clauses.push('l.price >= ?');
     parameters.push(sanitizePositiveInt(query.minPrice, 0, 0, 100000000000));
   }
   if (query.maxPrice) {
-    clauses.push('price <= ?');
+    clauses.push('l.price <= ?');
     parameters.push(sanitizePositiveInt(query.maxPrice, 100000000000, 0, 100000000000));
   }
   if (query.bedrooms) {
-    clauses.push('bedrooms >= ?');
+    clauses.push('l.bedrooms >= ?');
     parameters.push(sanitizePositiveInt(query.bedrooms, 0, 0, 50));
   }
-  if (query.featured === 'true') clauses.push('featured = 1');
-  if (query.verified === 'true') clauses.push('verified = 1');
+  if (query.featured === 'true') clauses.push('l.featured = 1');
+  if (query.verified === 'true') clauses.push('l.verified = 1');
 
   if (query.search) {
     const search = sanitizeString(query.search, 200);
     clauses.push(
-      "(instr(lower(COALESCE(title, '')), lower(?)) > 0"
-      + " OR instr(lower(COALESCE(location, '')), lower(?)) > 0"
-      + " OR instr(lower(COALESCE(area, '')), lower(?)) > 0"
-      + " OR instr(lower(COALESCE(city, '')), lower(?)) > 0"
-      + " OR instr(lower(COALESCE(description, '')), lower(?)) > 0)",
+      "(instr(lower(COALESCE(l.title, '')), lower(?)) > 0"
+      + " OR instr(lower(COALESCE(l.location, '')), lower(?)) > 0"
+      + " OR instr(lower(COALESCE(l.area, '')), lower(?)) > 0"
+      + " OR instr(lower(COALESCE(l.city, '')), lower(?)) > 0"
+      + " OR instr(lower(COALESCE(l.description, '')), lower(?)) > 0)",
     );
     parameters.push(search, search, search, search, search);
   }
@@ -67,15 +76,15 @@ function approvedListingWhere(query: Record<string, string>) {
 
 function listingOrder(value: unknown): string {
   const sort = sanitizeEnum<ListingSort>(value, VALID_SORT, 'featured');
-  if (sort === 'price-asc') return 'ORDER BY price ASC';
-  if (sort === 'price-desc') return 'ORDER BY price DESC';
-  if (sort === 'newest') return 'ORDER BY id DESC';
-  return 'ORDER BY featured DESC, id DESC';
+  if (sort === 'price-asc') return 'ORDER BY l.price ASC';
+  if (sort === 'price-desc') return 'ORDER BY l.price DESC';
+  if (sort === 'newest') return 'ORDER BY l.id DESC';
+  return 'ORDER BY l.featured DESC, l.id DESC';
 }
 
 // These routes are the single public catalogue boundary. production-entry.ts
 // rewrites the legacy /api/listings and /api/stats paths here so pending rows
-// cannot leak through an older handler.
+// and listings owned by inactive accounts cannot leak through older handlers.
 authRoutes.get('/public-listings', async c => {
   c.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
   const query = c.req.query();
@@ -85,13 +94,13 @@ authRoutes.get('/public-listings', async c => {
   const where = approvedListingWhere(query);
 
   const count = await c.env.DB.prepare(
-    `SELECT COUNT(*) AS c FROM listings ${where.sql}`,
+    `SELECT COUNT(*) AS c FROM listings l ${where.sql}`,
   ).bind(...where.parameters).first<{ c: number }>();
   const total = count?.c || 0;
   const totalPages = Math.ceil(total / limit) || 1;
 
   const result = await c.env.DB.prepare(
-    `SELECT * FROM listings ${where.sql} ${listingOrder(query.sort)} LIMIT ${limit} OFFSET ${offset}`,
+    `SELECT l.* FROM listings l ${where.sql} ${listingOrder(query.sort)} LIMIT ${limit} OFFSET ${offset}`,
   ).bind(...where.parameters).all();
 
   return c.json({
@@ -112,7 +121,11 @@ authRoutes.get('/public-listings/:id', async c => {
   if (!id) return c.json({ success: false, message: 'Invalid ID' }, 400);
 
   const listing = await c.env.DB.prepare(
-    "SELECT * FROM listings WHERE id = ? AND approval_status = 'approved'",
+    `SELECT l.*
+     FROM listings l
+     WHERE l.id = ?
+       AND l.approval_status = 'approved'
+       AND ${ACTIVE_OWNER_PREDICATE}`,
   ).bind(id).first();
   if (!listing) return c.json({ success: false, message: 'Listing not found' }, 404);
   return c.json({ success: true, data: rowToListing(listing) });
@@ -121,13 +134,13 @@ authRoutes.get('/public-listings/:id', async c => {
 authRoutes.get('/public-listing-stats', async c => {
   c.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
   const db = c.env.DB;
-  const approved = "approval_status = 'approved'";
+  const visible = `l.approval_status = 'approved' AND ${ACTIVE_OWNER_PREDICATE}`;
   const [total, rent, sale, land, featured] = await Promise.all([
-    db.prepare(`SELECT COUNT(*) AS c FROM listings WHERE ${approved}`).first<{ c: number }>(),
-    db.prepare(`SELECT COUNT(*) AS c FROM listings WHERE ${approved} AND type = 'rent'`).first<{ c: number }>(),
-    db.prepare(`SELECT COUNT(*) AS c FROM listings WHERE ${approved} AND type = 'sale'`).first<{ c: number }>(),
-    db.prepare(`SELECT COUNT(*) AS c FROM listings WHERE ${approved} AND type = 'land'`).first<{ c: number }>(),
-    db.prepare(`SELECT COUNT(*) AS c FROM listings WHERE ${approved} AND featured = 1`).first<{ c: number }>(),
+    db.prepare(`SELECT COUNT(*) AS c FROM listings l WHERE ${visible}`).first<{ c: number }>(),
+    db.prepare(`SELECT COUNT(*) AS c FROM listings l WHERE ${visible} AND l.type = 'rent'`).first<{ c: number }>(),
+    db.prepare(`SELECT COUNT(*) AS c FROM listings l WHERE ${visible} AND l.type = 'sale'`).first<{ c: number }>(),
+    db.prepare(`SELECT COUNT(*) AS c FROM listings l WHERE ${visible} AND l.type = 'land'`).first<{ c: number }>(),
+    db.prepare(`SELECT COUNT(*) AS c FROM listings l WHERE ${visible} AND l.featured = 1`).first<{ c: number }>(),
   ]);
 
   return c.json({
@@ -159,8 +172,28 @@ authRoutes.put(
       return c.json({ success: false, message: 'Approval status must be approved or pending' }, 400);
     }
 
-    const existing = await c.env.DB.prepare('SELECT id FROM listings WHERE id = ?').bind(id).first();
+    const existing = await c.env.DB.prepare(
+      `SELECT l.id, l.created_by,
+              CASE
+                WHEN l.created_by IS NULL THEN 'active'
+                ELSE COALESCE(owner.account_status, 'missing')
+              END AS owner_account_status
+       FROM listings l
+       LEFT JOIN users owner ON owner.id = l.created_by
+       WHERE l.id = ?`,
+    ).bind(id).first<{
+      id: number;
+      created_by: number | null;
+      owner_account_status: string;
+    }>();
     if (!existing) return c.json({ success: false, message: 'Listing not found' }, 404);
+
+    if (approvalStatus === 'approved' && existing.owner_account_status !== 'active') {
+      return c.json({
+        success: false,
+        message: 'This listing cannot be approved while its owner is inactive.',
+      }, 409);
+    }
 
     if (approvalStatus === 'approved') {
       await c.env.DB.prepare(
