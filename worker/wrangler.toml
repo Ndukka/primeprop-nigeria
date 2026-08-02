@@ -1,6 +1,6 @@
 #:schema node_modules/wrangler/config-schema.json
 name = "primeprop-worker"
-main = "src/production-entry.ts"
+main = "src/professional-session-entry.ts"
 compatibility_date = "2025-03-01"
 compatibility_flags = ["nodejs_compat"]
 

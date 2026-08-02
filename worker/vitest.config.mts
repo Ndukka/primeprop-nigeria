@@ -20,6 +20,7 @@ export default defineConfig({
       'tests/feedback-regressions.test.ts',
       'tests/feedback-ux-csrf-regressions.test.ts',
       'tests/session-refresh-regressions.test.ts',
+      'tests/professional-session-regressions.test.ts',
       'tests/cache-coherency-regressions.test.ts',
     ],
     testTimeout: 30000,

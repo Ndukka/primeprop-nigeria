@@ -461,6 +461,45 @@ The file exists to make recurrence inexpensive: a future engineer should be able
   npm run test:worker -- --run tests/feedback-csrf-runtime.test.ts
   ```
 
+## PP-ERR-049: Agent profile feedback used a second identity resolver
+
+- **Status**: Resolved in source and merged through PR #20.
+- **Symptoms**: `/agent-profile?listing=<listing-id>` could display a registered agent but omit **Report this agent**, ratings, and approved written comments. Opening the same profile with `?id=<agent-id>` behaved differently.
+- **Root cause**: `agent-profile.js` resolved both listing and agent URLs, while `agent-feedback.js` independently parsed only `?id=` and could classify the already-rendered registered profile as legacy.
+- **Repair**: `agent-profile.js` is the sole profile identity resolver and publishes `PrimePropAgentProfileState` plus `primeprop:agent-profile-ready`. `agent-feedback.js` consumes that state and no longer reparses the URL or refetches the agent independently.
+- **Prevention**: Source tests forbid `URLSearchParams`, `/auth/public-agents/`, and a second profile observer in `agent-feedback.js`; they require the report control, rating summary, and approved-comment surface for registered profiles.
+- **Immediate diagnosis**:
+  ```bash
+  cd "$(git rev-parse --show-toplevel)/worker"
+  npm run test:static -- --run tests/feedback-ux-csrf-regressions.test.ts
+  ```
+
+## PP-ERR-050: Normal browser refresh races revoked professional sessions
+
+- **Status**: Resolved in source and merged through PR #21; production requires the verified release containing migration 0020.
+- **Symptoms**: Administrators or agents were sent back to login when the 15-minute access cookie expired even though the seven-day refresh session was still valid.
+- **Root cause**: Concurrent dashboard requests reused the same old refresh cookie. The first rotated it; the second was treated as hostile replay and revoked the full family. CI also exposed competing security-stamp triggers and same-second timestamp precision that could make genuine invalidation nondeterministic.
+- **Repair**: A same-browser duplicate within 15 seconds receives only a renewed access cookie and cannot overwrite or revoke the winning refresh/CSRF state. Delayed or different-client reuse still revokes the family. Migration `0020_security_stamp_invalidation_timestamp.sql` replaces the old trigger with one millisecond-resolution authority.
+- **Prevention**: Worker-runtime tests prove immediate duplicate refresh survives, delayed replay revokes refresh and access credentials, and only one invalidation trigger remains.
+- **Immediate diagnosis**:
+  ```bash
+  cd "$(git rev-parse --show-toplevel)/worker"
+  npm run test:worker -- --run tests/session-refresh-runtime.test.ts
+  ```
+
+## PP-ERR-051: Dashboard refresh reached role enforcement before session renewal
+
+- **Status**: Resolved on `hotfix/admin-session-bootstrap`; production activation requires merge and verified deployment.
+- **Symptoms**: The admin dashboard could briefly return HTTP 403 `Insufficient permissions. This action requires: admin` for districts or users and then work on a later request without any role change. The agent dashboard had the same exposure on profile and listing startup reads.
+- **Root cause**: Several authenticated GET routes bypassed the hardened session preflight. With only the refresh cookie available, they reached the legacy fallback, whose D1 query omitted `role` but then read `dbUser.role`. Concurrent legacy and correction bootstraps made the undefined-role request visible intermittently.
+- **Repair**: `professional-session-entry.ts` now preflights all current protected administrator and agent dashboard routes, protected upload reads, and authenticated API writes through `/auth/session`; forwards renewed access, refresh, and CSRF state into the original request; and leaves role enforcement to the route using the current database identity.
+- **Prevention**: Source coverage locks the protected-route catalogue and error-bank entries. Worker-runtime coverage concurrently loads `/auth/admin-districts` with `/auth/admin-users`, and `/auth/profile-settings` with `/auth/my-listings`, using refresh-only browser state. Every response must succeed without clearing the winning refresh or CSRF cookies.
+- **Immediate diagnosis**:
+  ```bash
+  cd "$(git rev-parse --show-toplevel)/worker"
+  npm run test:worker -- --run tests/session-refresh-runtime.test.ts
+  ```
+
 ---
 
 ## Mandatory validation sequence
