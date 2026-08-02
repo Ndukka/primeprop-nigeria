@@ -30,6 +30,8 @@ function adminWrite(token: string, method: string, body?: unknown): RequestInit 
     method,
     headers: {
       Authorization: `Bearer ${token}`,
+      'CF-Connecting-IP': '192.0.2.10',
+      'CF-Ray': 'admin-feedback-test-ray',
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -51,6 +53,11 @@ function reviewerWrite(token: string, csrf: string, body: unknown, extraCookie =
       Origin: BASE,
       'Sec-Fetch-Site': 'same-origin',
       Cookie: cookie,
+      'CF-Connecting-IP': '203.0.113.42',
+      'X-Forwarded-For': '198.51.100.99',
+      'CF-IPCountry': 'NG',
+      'CF-Ray': 'reviewer-feedback-test-ray',
+      'User-Agent': 'PrimeProp-Test-Browser/1.0',
     },
     body: JSON.stringify(body),
   };
@@ -225,6 +232,44 @@ describe('Google reviewer feedback boundaries', () => {
         },
       ));
       expect(report.status).toBe(202);
+      const reportBody = await report.json() as any;
+      const reportRow = await testEnv.DB.prepare(
+        `SELECT id, reporter_ip_hash FROM moderation_reports WHERE public_id = ?`,
+      ).bind(reportBody.data.publicId).first<{ id: number; reporter_ip_hash: string }>();
+      expect(reportRow?.id).toBeTruthy();
+      expect(reportRow?.reporter_ip_hash).toMatch(/^[a-f0-9]{64}$/);
+
+      const evidenceResponse = await workerFetch(
+        `/auth/feedback/admin/reports/${reportRow!.id}/evidence`,
+        adminWrite(adminToken, 'GET'),
+      );
+      expect(evidenceResponse.status).toBe(200);
+      expect(evidenceResponse.headers.get('cache-control')).toBe('no-store');
+      const evidenceText = await evidenceResponse.clone().text();
+      const evidenceBody = await evidenceResponse.json() as any;
+      expect(evidenceBody.data.reporter).toMatchObject({
+        googleEmail: reviewerEmail,
+        currentGoogleEmail: reviewerEmail,
+        emailVerified: true,
+      });
+      expect(evidenceBody.data.reporter.firstAuthenticatedAt).toBeTruthy();
+      expect(evidenceBody.data.reporter.lastAuthenticatedAt).toBeTruthy();
+      expect(evidenceBody.data.networkEvidence).toMatchObject({
+        ipAddress: '203.0.113.42',
+        country: 'NG',
+        userAgent: 'PrimeProp-Test-Browser/1.0',
+        requestId: 'reviewer-feedback-test-ray',
+        retained: true,
+      });
+      expect(evidenceBody.data.networkEvidence.ipAddress).not.toBe('198.51.100.99');
+      expect(evidenceBody.data.listing).toMatchObject({
+        id: listingId,
+        approvalStatus: 'approved',
+        action: 'none',
+      });
+      expect(evidenceText).not.toContain(googleSub);
+      expect(evidenceText).not.toContain(emailHash);
+
       const duplicateReport = await workerFetch('/auth/feedback/reports', reviewerWrite(
         reviewerToken,
         reviewerCsrf,
@@ -283,12 +328,92 @@ describe('Google reviewer feedback boundaries', () => {
       expect(unbanned.status).toBe(200);
       expect((await (await workerFetch('/auth/feedback/agents/2/ratings')).json() as any).data.total).toBe(1);
 
+      const shortTakedownNote = await workerFetch(
+        `/auth/feedback/admin/report-cases/${reportRow!.id}`,
+        adminWrite(adminToken, 'PUT', { action: 'take_down_listing', note: 'Too short' }),
+      );
+      expect(shortTakedownNote.status).toBe(400);
+      expect((await workerFetch(`/auth/public-listings/${listingId}`)).status).toBe(200);
+
+      const takenDown = await workerFetch(
+        `/auth/feedback/admin/report-cases/${reportRow!.id}`,
+        adminWrite(adminToken, 'PUT', {
+          action: 'take_down_listing',
+          note: 'Price evidence requires the listing to remain unpublished during review.',
+        }),
+      );
+      expect(takenDown.status).toBe(200);
+      const takenDownBody = await takenDown.json() as any;
+      expect(takenDownBody.data).toMatchObject({
+        listingId,
+        previousApprovalStatus: 'approved',
+        approvalStatus: 'pending',
+        status: 'resolved',
+        evidenceRetentionDays: 90,
+      });
+      expect((await workerFetch(`/auth/public-listings/${listingId}`)).status).toBe(404);
+      expect((await workerFetch(`/auth/public-listings/${legacyListingId}`)).status).toBe(200);
+      expect((await (await workerFetch('/auth/feedback/agents/2/ratings')).json() as any).data.total).toBe(0);
+
+      const moderatedState = await testEnv.DB.prepare(
+        `SELECT report.status, report.listing_action, report.evidence_expires_at,
+                listing.approval_status
+         FROM moderation_reports report
+         JOIN listings listing ON listing.id = report.listing_id
+         WHERE report.id = ?`,
+      ).bind(reportRow!.id).first<any>();
+      expect(moderatedState).toMatchObject({
+        status: 'resolved',
+        listing_action: 'taken_down',
+        approval_status: 'pending',
+      });
+      expect(moderatedState.evidence_expires_at).toBeTruthy();
+
+      const reapproved = await workerFetch(
+        `/auth/admin-listings/${listingId}/approval`,
+        adminWrite(adminToken, 'PUT', { approvalStatus: 'approved' }),
+      );
+      expect(reapproved.status).toBe(200);
+      expect((await workerFetch(`/auth/public-listings/${listingId}`)).status).toBe(200);
+      expect((await (await workerFetch('/auth/feedback/agents/2/ratings')).json() as any).data.total).toBe(1);
+
+      await testEnv.DB.prepare(
+        `UPDATE moderation_reports
+         SET evidence_expires_at = datetime('now', '-1 minute')
+         WHERE id = ?`,
+      ).bind(reportRow!.id).run();
+      const expiredEvidence = await workerFetch(
+        `/auth/feedback/admin/reports/${reportRow!.id}/evidence`,
+        adminWrite(adminToken, 'GET'),
+      );
+      expect(expiredEvidence.status).toBe(200);
+      const expiredBody = await expiredEvidence.json() as any;
+      expect(expiredBody.data.reporter.googleEmail).toBe(reviewerEmail);
+      expect(expiredBody.data.networkEvidence).toMatchObject({
+        ipAddress: null,
+        country: null,
+        userAgent: null,
+        requestId: null,
+        retained: false,
+      });
+      const retainedFingerprint = await testEnv.DB.prepare(
+        `SELECT reporter_ip, reporter_ip_hash FROM moderation_reports WHERE id = ?`,
+      ).bind(reportRow!.id).first<any>();
+      expect(retainedFingerprint.reporter_ip).toBeNull();
+      expect(retainedFingerprint.reporter_ip_hash).toMatch(/^[a-f0-9]{64}$/);
+
       const audit = await testEnv.DB.prepare(
         `SELECT COUNT(*) AS count FROM audit_events
          WHERE action LIKE 'feedback.%'
-           AND (target_id = ? OR actor_email = ?)`,
-      ).bind(rating!.id, reviewerEmail).first<{ count: number }>();
-      expect(Number(audit?.count || 0)).toBeGreaterThanOrEqual(4);
+            OR (action = 'listing.moderation.taken_down' AND target_id = ?)`,
+      ).bind(listingId).first<{ count: number }>();
+      expect(Number(audit?.count || 0)).toBeGreaterThanOrEqual(7);
+      const takedownAudits = await testEnv.DB.prepare(
+        `SELECT COUNT(*) AS count FROM audit_events
+         WHERE action IN ('feedback.report.take_down_listing', 'listing.moderation.taken_down')
+           AND target_id IN (?, ?)`,
+      ).bind(reportRow!.id, listingId).first<{ count: number }>();
+      expect(Number(takedownAudits?.count || 0)).toBe(2);
     } finally {
       if (professionalId) {
         await testEnv.DB.prepare('DELETE FROM users WHERE id = ?').bind(professionalId).run();
