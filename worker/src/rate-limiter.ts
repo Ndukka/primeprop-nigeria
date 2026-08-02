@@ -1,6 +1,7 @@
 import './role-profile-routes';
 import './admin-inventory-routes';
 import './listing-approval-routes';
+import './feedback-routes';
 import { DurableObject } from 'cloudflare:workers';
 
 // ── Rate Limiter Durable Object ───────────────────────────
