@@ -168,12 +168,13 @@ describe('feedback architecture and privacy contracts', () => {
     ]) {
       expect(emitted[asset], `${asset} must be in the manifest`).toBeTruthy();
       expect(generatedAsset(asset).length).toBeGreaterThan(200);
+      expect(clientRuntime).toContain(`loadRuntime('${emitted[asset]}')`);
+      expect(clientRuntime).not.toContain(`loadRuntime('/${asset}')`);
     }
 
     expect(clientRuntime).toContain("/^\\/listing-detail(?:-[123])?$/");
     expect(clientRuntime).toContain("path === '/agent-profile'");
     expect(clientRuntime).toContain("path === '/admin'");
-    expect(clientRuntime).toContain("loadRuntime('/js/feedback-client.js')");
     expect(clientRuntime).toContain('if (runtimeNonce) script.nonce = runtimeNonce');
     expect(clientRuntime).not.toContain("path === '/properties'");
   });
