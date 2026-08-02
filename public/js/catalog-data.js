@@ -55,6 +55,27 @@
     return /^\d+$/.test(queryId) ? queryId : '';
   }
 
+  async function hydrateCallLink(anchor, id) {
+    if (!(anchor instanceof HTMLAnchorElement) || anchor.dataset.ppCallState) return;
+    anchor.dataset.ppCallState = 'loading';
+    anchor.href = '#';
+    anchor.setAttribute('aria-disabled', 'true');
+
+    try {
+      const body = await client.requestJson(`/auth/listing-contact/${encodeURIComponent(id)}/call`);
+      const callUrl = String(body.data?.callUrl || '');
+      if (!/^tel:\+\d{10,15}$/.test(callUrl)) {
+        throw new Error('The agent phone number is invalid.');
+      }
+      anchor.href = callUrl;
+      anchor.removeAttribute('aria-disabled');
+      anchor.dataset.ppCallState = 'ready';
+    } catch (error) {
+      console.error('Listing call contact failed:', error);
+      anchor.replaceWith(unavailableContactLabel());
+    }
+  }
+
   function applyContactRoutes(root, explicitListingIds = []) {
     if (!(root instanceof Document || root instanceof DocumentFragment || root instanceof Element)) return;
 
@@ -85,8 +106,11 @@
           whatsapp.target = '_blank';
           whatsapp.rel = 'noopener';
         }
-        const call = detail.querySelector('a[href^="tel:"]');
-        if (call) call.href = `/auth/listing-contact/${encodeURIComponent(id)}/call`;
+        const call = detail.querySelector('a[href^="tel:"], a[data-pp-call-action]');
+        if (call) {
+          call.setAttribute('data-pp-call-action', id);
+          void hydrateCallLink(call, id);
+        }
       }
     }
 
@@ -98,9 +122,12 @@
     for (const anchor of retired) {
       const id = listingIdForNode(anchor);
       if (/^\d+$/.test(id)) {
-        anchor.href = anchor.classList.contains('btn-whatsapp')
-          ? `/auth/listing-contact/${encodeURIComponent(id)}/whatsapp`
-          : `/auth/listing-contact/${encodeURIComponent(id)}/call`;
+        if (anchor.classList.contains('btn-whatsapp')) {
+          anchor.href = `/auth/listing-contact/${encodeURIComponent(id)}/whatsapp`;
+        } else {
+          anchor.setAttribute('data-pp-call-action', id);
+          void hydrateCallLink(anchor, id);
+        }
       } else {
         anchor.replaceWith(unavailableContactLabel());
       }
