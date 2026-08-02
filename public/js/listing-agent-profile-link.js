@@ -21,16 +21,16 @@
     if (!listingResponse.ok || !listingBody?.success || !listingBody.data) return '';
 
     const listing = listingBody.data;
-    const candidateId = Number(listing.agent?.id || 0);
-    if (Number.isSafeInteger(candidateId) && candidateId > 0) {
-      const profileResponse = await fetch(`/auth/public-agents/${encodeURIComponent(candidateId)}`, {
+    const agentId = Number(listing.agent?.id || 0);
+    if (Number.isSafeInteger(agentId) && agentId > 0) {
+      const profileResponse = await fetch(`/auth/public-agents/${encodeURIComponent(agentId)}`, {
         cache: 'no-store',
         headers: { Accept: 'application/json' },
       });
       if (!profileResponse.ok) return '';
       const profileBody = await profileResponse.json().catch(() => null);
-      return profileBody?.success && Number(profileBody.data?.id) === candidateId
-        ? `/agent-profile?id=${encodeURIComponent(candidateId)}`
+      return profileBody?.success && Number(profileBody.data?.id) === agentId
+        ? `/agent-profile?id=${encodeURIComponent(agentId)}`
         : '';
     }
 
