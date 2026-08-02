@@ -163,7 +163,10 @@ describe.sequential('public listing contact actions', () => {
       expect(listing.success).toBe(true);
       expect(listing.data.agent.phone).toBe('');
 
-      const whatsapp = await workerFetch(`/auth/listing-contact/${listingId}/whatsapp`);
+      const whatsapp = await workerFetch(
+        `/auth/listing-contact/${listingId}/whatsapp`,
+        { redirect: 'manual' },
+      );
       const call = await workerFetch(`/auth/listing-contact/${listingId}/call`);
 
       expect(whatsapp.status).toBe(302);
