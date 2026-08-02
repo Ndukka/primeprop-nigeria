@@ -145,8 +145,8 @@ describe.sequential('stable administrator inventories', () => {
   });
 });
 
-describe.sequential('public listing contact redirects', () => {
-  it('opens WhatsApp and phone actions without exposing the number in listing JSON', async () => {
+describe.sequential('public listing contact actions', () => {
+  it('opens WhatsApp and provides a validated call URL without exposing the number in listing JSON', async () => {
     const listingResponse = await workerFetch('/api/listings/1');
     const listing = await listingResponse.json() as {
       success: boolean;
@@ -155,16 +155,22 @@ describe.sequential('public listing contact redirects', () => {
     expect(listing.success).toBe(true);
     expect(listing.data.agent.phone).toBe('');
 
-    const [whatsapp, call] = await Promise.all([
-      workerFetch('/auth/listing-contact/1/whatsapp'),
-      workerFetch('/auth/listing-contact/1/call'),
-    ]);
+    const whatsapp = await workerFetch('/auth/listing-contact/1/whatsapp');
+    const call = await workerFetch('/auth/listing-contact/1/call');
 
     expect(whatsapp.status).toBe(302);
     expect(whatsapp.headers.get('cache-control')).toContain('no-store');
     expect(whatsapp.headers.get('location')).toMatch(/^https:\/\/wa\.me\/2348000000001\?text=/);
-    expect(call.status).toBe(302);
-    expect(call.headers.get('location')).toBe('tel:+2348000000001');
+    expect(call.status).toBe(200);
+    expect(call.headers.get('cache-control')).toContain('no-store');
+    const callBody = await call.json() as {
+      success: boolean;
+      data: { callUrl: string };
+    };
+    expect(callBody).toEqual({
+      success: true,
+      data: { callUrl: 'tel:+2348000000001' },
+    });
   });
 
   it('does not publish contact routes for an inactive account owner', async () => {
