@@ -70,17 +70,14 @@ describe('Google reviewer feedback boundaries', () => {
 
     const approvedInsert = await testEnv.DB.prepare(
       `INSERT INTO listings
-       (title, type, property_type, price, location, city, created_by,
-        approval_status, approved_by, approved_at)
-       VALUES (?, 'rent', 'apartment', 4500000, 'Feedback Runtime Estate',
-               'Lagos', 2, 'approved', 1, datetime('now'))`,
+       (title, type, property_type, price, location, city, created_by)
+       VALUES (?, 'rent', 'apartment', 4500000, 'Feedback Runtime Estate', 'Lagos', 2)`,
     ).bind(`Feedback listing ${suffix}`).run();
     const legacyInsert = await testEnv.DB.prepare(
       `INSERT INTO listings
-       (title, type, property_type, price, location, city, agent_name,
-        approval_status, approved_by, approved_at)
+       (title, type, property_type, price, location, city, agent_name)
        VALUES (?, 'sale', 'duplex', 85000000, 'Legacy Feedback Estate',
-               'Lagos', 'Legacy Catalogue Agent', 'approved', 1, datetime('now'))`,
+               'Lagos', 'Legacy Catalogue Agent')`,
     ).bind(`Legacy feedback listing ${suffix}`).run();
     const listingId = Number(approvedInsert.meta.last_row_id);
     const legacyListingId = Number(legacyInsert.meta.last_row_id);
@@ -94,6 +91,11 @@ describe('Google reviewer feedback boundaries', () => {
          SET account_status = 'active', profile_published = 1
          WHERE id = 2`,
       ).run();
+      await testEnv.DB.prepare(
+        `UPDATE listings
+         SET approval_status = 'approved', approved_by = 1, approved_at = datetime('now')
+         WHERE id IN (?, ?)`,
+      ).bind(listingId, legacyListingId).run();
 
       const reviewerInsert = await testEnv.DB.prepare(
         `INSERT INTO reviewer_identities
