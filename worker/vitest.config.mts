@@ -18,6 +18,7 @@ export default defineConfig({
       'tests/cloudflare-usage-regressions.test.ts',
       'tests/listing-approval-regressions.test.ts',
       'tests/feedback-regressions.test.ts',
+      'tests/cache-coherency-regressions.test.ts',
     ],
     testTimeout: 30000,
   },

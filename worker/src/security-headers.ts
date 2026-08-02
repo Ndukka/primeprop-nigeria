@@ -70,6 +70,24 @@ export function injectNonces(html: string, nonce: string): string {
 
 export function setHtmlSecurityHeaders(headers: Headers, nonce: string): void {
   headers.set('Content-Security-Policy', buildCsp(nonce));
+
+  // HTML is rewritten on every request to inject a fresh CSP nonce. It must
+  // never retain validators or cache metadata from the underlying static
+  // asset response, otherwise a browser can reuse HTML from an older build
+  // while loading JavaScript from a newer one.
+  for (const header of [
+    'Age',
+    'Content-Length',
+    'ETag',
+    'Last-Modified',
+    'Surrogate-Control',
+  ]) {
+    headers.delete(header);
+  }
+  headers.set('Cache-Control', 'private, no-store, max-age=0, must-revalidate');
+  headers.set('Pragma', 'no-cache');
+  headers.set('Expires', '0');
+
   setCommonSecurityHeaders(headers);
 }
 

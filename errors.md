@@ -405,6 +405,34 @@ The file exists to make recurrence inexpensive: a future engineer should be able
     npm run audit:cloudflare-data
   ```
 
+## PP-ERR-045: Remote D1 trigger migration failed and the shell still deployed
+
+- **Status**: Resolved and deployed on 2026-08-02.
+- **Symptoms**: Remote migration `0018_feedback_and_reviewer_identities.sql` failed with `incomplete input: SQLITE_ERROR [code: 7500]`, but the surrounding shell continued into `deploy:verified` and published Worker code before its required tables were available.
+- **Root cause**: D1's remote SQL parser misread unparenthesized `CASE ... END` expressions inside trigger bodies. The operator command sequence did not fail closed after the migration process returned a nonzero status.
+- **Repair**: Trigger expressions are written as `SELECT (CASE ... END)`; `release-production-verified.mjs` lists and applies remote migrations, verifies that none remain, and only then invokes the verified deployment.
+- **Prevention**: The full isolated migration catalogue must pass with Wrangler 4.118.0; production releases must use `npm run release:production:verified`; tests require the parenthesized trigger form and migration-before-deployment ordering.
+- **Immediate diagnosis**:
+  ```bash
+  cd "$(git rev-parse --show-toplevel)/worker"
+  node ./scripts/run-wrangler.mjs d1 migrations list primeprop-db --remote
+  ```
+
+## PP-ERR-046: Recent feedback code appeared only after repeated hard refreshes
+
+- **Status**: Resolved in source; deploy the current hotfix through the fail-closed release command.
+- **First observed**: After production Worker version `24aaf68e-5b50-456e-a588-8063845bb7d1`.
+- **Symptoms**: Newly deployed rating, reporting, or administrator feedback code remained absent during ordinary navigation or reloads and appeared only after a hard refresh. The problem returned because different browser requests could reuse different revisions.
+- **Root cause**: The recent feedback loader introduced unversioned dynamically loaded feedback scripts under `/js/*.js` while the page, manifest, and ordinary scripts used content-hashed `/assets/*` URLs. Rewritten HTML also relied on inherited cache metadata instead of explicitly removing validators and enforcing the documented no-store policy.
+- **Repair**: `version-dynamic-runtime-assets.mjs` replaces every dynamic feedback URL in generated `client-data` with its manifest-owned content-hashed URL, re-hashes `client-data`, updates every page reference and build identity, and rewrites the manifest before compatibility aliases are copied. `setHtmlSecurityHeaders` now deletes `ETag`, `Last-Modified`, `Content-Length`, `Age`, and surrogate cache metadata and always sets `private, no-store, max-age=0, must-revalidate`, `Pragma: no-cache`, and `Expires: 0`.
+- **Prevention**: Cache-coherency tests require every deployable page script and every dynamic feedback runtime to use a 12-character content hash; the build fails if a stable feedback URL remains; security-header tests require validator removal; post-deployment verification continues to require no-store HTML and two stable manifest rounds.
+- **Immediate diagnosis**:
+  ```bash
+  cd "$(git rev-parse --show-toplevel)/worker"
+  npm run build:public
+  ```
+  Confirm `dynamic_runtime_assets_versioned` is printed and the static test suite reports no unversioned runtime URL.
+
 ---
 
 ## Mandatory validation sequence
@@ -417,12 +445,12 @@ npm ci
 npm run test:all
 ```
 
-Deploy and require stable post-deployment verification:
+Apply migrations, deploy, and require stable post-deployment verification:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)/worker"
 PRIMEPROP_BASE_URL="https://primeprop-worker.ndupsn.workers.dev" \
-  npm run deploy:verified
+  npm run release:production:verified
 ```
 
 Run the live read-only D1/R2 audit. The script prompts for credentials in the terminal and does not echo the password:
