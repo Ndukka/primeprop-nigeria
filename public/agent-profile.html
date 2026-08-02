@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Profile | PrimeProp Nigeria</title>
+    <meta name="description" content="View a PrimeProp Nigeria agent profile, organisation details, areas of practice, credentials and active property listings.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="agent-profile.css">
+</head>
+<body>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <div class="container">
+        <header>
+            <a href="/" class="logo">
+                <div class="logo-icon"><i class="fa-solid fa-building"></i></div>
+                <div class="logo-text">
+                    <span class="prime">PrimeProp</span>
+                    <span class="ng">Nigeria</span>
+                </div>
+            </a>
+            <nav>
+                <a href="/">Home</a>
+                <a href="/properties">Listings</a>
+                <a href="/properties-rent">Rent</a>
+                <a href="/properties-sale">Buy</a>
+                <a href="/properties-land">Land</a>
+                <a href="/areas">Area Guides</a>
+            </nav>
+            <a href="/properties" class="btn btn-primary">Browse Listings</a>
+        </header>
+
+        <main id="main-content" class="agent-profile-page">
+            <a href="/properties" class="back-link" data-pp-action="back"><i class="fa-solid fa-arrow-left"></i> Back to listings</a>
+            <div id="agentProfileContent" aria-live="polite">
+                <div class="agent-profile-loading" role="status">
+                    <span class="agent-profile-loading__avatar"></span>
+                    <span class="agent-profile-loading__line agent-profile-loading__line--wide"></span>
+                    <span class="agent-profile-loading__line"></span>
+                    <span class="agent-profile-loading__line agent-profile-loading__line--short"></span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <footer>
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-brand">
+                    <a href="/" class="logo">
+                        <div class="logo-icon"><i class="fa-solid fa-building"></i></div>
+                        <div class="logo-text">
+                            <span class="prime">PrimeProp</span>
+                            <span class="ng">Nigeria</span>
+                        </div>
+                    </a>
+                    <p>Property discovery with clearer information, safer contact and independent verification.</p>
+                </div>
+                <div class="footer-col">
+                    <h4>Explore</h4>
+                    <a href="/properties">All Listings</a>
+                    <a href="/properties-rent">Rent</a>
+                    <a href="/properties-sale">Buy</a>
+                    <a href="/properties-land">Land</a>
+                </div>
+                <div class="footer-col">
+                    <h4>Research</h4>
+                    <a href="/areas">Area Guides</a>
+                    <a href="/properties">Property Search</a>
+                </div>
+                <div class="footer-col">
+                    <h4>Account</h4>
+                    <a href="/login">Agent Login</a>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <span>© 2026 PrimeProp Nigeria. All rights reserved.</span>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/app.js"></script>
+    <script src="js/agent-profile.js"></script>
+</body>
+</html>
