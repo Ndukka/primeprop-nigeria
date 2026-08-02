@@ -1,10 +1,19 @@
-import type { D1Database, DurableObjectNamespace } from '@cloudflare/workers-types';
+import type { D1Database } from '@cloudflare/workers-types';
+
+type FeedbackRateLimiterStub = {
+  checkLimit(key: string, limit: number): Promise<{ allowed: boolean; retryAfter?: number }>;
+};
+
+type FeedbackRateLimiterNamespace = {
+  idFromName(name: string): unknown;
+  get(id: unknown): FeedbackRateLimiterStub;
+};
 
 export type FeedbackBindings = {
   DB: D1Database;
   JWT_SECRET: string;
   ENVIRONMENT: string;
-  RATE_LIMITER: DurableObjectNamespace<any>;
+  RATE_LIMITER: FeedbackRateLimiterNamespace;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_FEEDBACK_REDIRECT_URI?: string;
