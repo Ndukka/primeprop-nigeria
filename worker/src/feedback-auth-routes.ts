@@ -26,6 +26,7 @@ import {
   timingSafeEqual,
   validateReviewerCsrf,
   verifyFeedbackValue,
+  FEEDBACK_CSRF_COOKIE,
   FEEDBACK_OAUTH_NONCE_COOKIE,
   FEEDBACK_OAUTH_PKCE_COOKIE,
   FEEDBACK_OAUTH_RETURN_COOKIE,
@@ -70,9 +71,21 @@ function configuredFeedbackRedirect(env: FeedbackBindings): string {
   }
 }
 
+function relativeRedirect(location: string, status = 302): Response {
+  return new Response(null, {
+    status,
+    headers: {
+      Location: location,
+      'Cache-Control': 'no-store',
+      'Referrer-Policy': 'no-referrer',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
+}
+
 function redirectWithClearedOauth(returnTo: string, status: string): Response {
   return appendSetCookies(
-    Response.redirect(returnPathWithFeedbackStatus(returnTo, status), 302),
+    relativeRedirect(returnPathWithFeedbackStatus(returnTo, status)),
     clearOauthCookies(),
   );
 }
@@ -258,7 +271,7 @@ authRoutes.get('/feedback/google/callback', async c => {
   await env.DB.prepare('UPDATE reviewer_sessions SET revoked = 1 WHERE reviewer_id = ?')
     .bind(reviewer.id).run();
   const session = await issueReviewerSession(env, reviewer.id);
-  const response = Response.redirect(returnPathWithFeedbackStatus(returnTo, 'success'), 302);
+  const response = relativeRedirect(returnPathWithFeedbackStatus(returnTo, 'success'));
   return appendSetCookies(
     appendSetCookies(response, clearOauthCookies()),
     reviewerSessionCookies(session.token, session.csrf),
@@ -291,6 +304,10 @@ authRoutes.post('/feedback/logout', async c => {
   const env = envFor(c);
   const requestError = feedbackWriteRequestError(c.req.raw, env);
   if (requestError) return c.json({ success: false, message: requestError }, 403);
+  const csrf = getCookie(c.req.raw, FEEDBACK_CSRF_COOKIE);
+  if (!csrf || c.req.header('Authorization') !== `Feedback ${csrf}`) {
+    return c.json({ success: false, message: 'Reviewer request proof is missing.' }, 403);
+  }
   const session = await findReviewerSession(c.req.raw, env);
   if (session && !await validateReviewerCsrf(c.req.raw, session)) {
     return c.json({ success: false, message: 'CSRF token mismatch.' }, 403);
