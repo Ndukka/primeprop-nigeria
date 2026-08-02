@@ -213,6 +213,12 @@
     }
   }
 
+  function startUploadOnlyMediaPolicy() {
+    applyUploadOnlyMediaPolicy();
+    const observer = new MutationObserver(() => applyUploadOnlyMediaPolicy());
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
   function applyFooterSignInLinks() {
     const links = document.querySelectorAll('footer .footer-col a');
     for (const link of links) {
@@ -221,15 +227,15 @@
     }
   }
 
-  function applySharedPagePolicies() {
-    applyUploadOnlyMediaPolicy();
+  function startFooterSignInPolicy() {
     applyFooterSignInLinks();
+    const observer = new MutationObserver(() => applyFooterSignInLinks());
+    observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 
   function startSharedPagePolicies() {
-    applySharedPagePolicies();
-    const observer = new MutationObserver(() => applySharedPagePolicies());
-    observer.observe(document.documentElement, { childList: true, subtree: true });
+    startUploadOnlyMediaPolicy();
+    startFooterSignInPolicy();
   }
 
   if (document.readyState === 'loading') {
