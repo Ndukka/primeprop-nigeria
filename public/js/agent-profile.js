@@ -5,6 +5,9 @@
   const root = document.getElementById('agentProfileContent');
   if (!root) return;
 
+  const PROFILE_EVENT = 'primeprop:agent-profile-ready';
+  window.PrimePropAgentProfileState = null;
+
   function clear(element) {
     while (element.firstChild) element.removeChild(element.firstChild);
   }
@@ -140,7 +143,14 @@
     return Number.isNaN(date.getTime()) ? '—' : String(date.getFullYear());
   }
 
+  function publishProfile(profile) {
+    const state = Object.freeze({ profile });
+    window.PrimePropAgentProfileState = state;
+    window.dispatchEvent(new CustomEvent(PROFILE_EVENT, { detail: state }));
+  }
+
   function renderError(message) {
+    window.PrimePropAgentProfileState = null;
     clear(root);
     const box = node('div', 'agent-profile-error');
     box.append(
@@ -334,6 +344,7 @@
     const listings = renderListings(profile);
     listings.id = 'active-listings';
     root.appendChild(listings);
+    publishProfile(profile);
   }
 
   function legacyProfileFromListing(listing) {

@@ -68,7 +68,41 @@ describe('feedback CSRF recovery and frontend contracts', () => {
     expect(client).toContain('control.click()');
   });
 
-  it('renders centered structured dialogs and visible rating/comment surfaces', () => {
+  it('uses the rendered profile as the single identity source for agent feedback', () => {
+    const profile = source('public/js/agent-profile.js');
+    const agent = source('public/js/agent-feedback.js');
+
+    expect(profile).toContain("const PROFILE_EVENT = 'primeprop:agent-profile-ready'");
+    expect(profile).toContain('window.PrimePropAgentProfileState = state');
+    expect(profile).toContain('window.dispatchEvent(new CustomEvent(PROFILE_EVENT, { detail: state }))');
+    expect(profile).toContain('publishProfile(profile)');
+    expect(profile).toContain("const listingId = params.get('listing')");
+    expect(profile).toContain('renderProfile(await loadListingProfile(listingId))');
+
+    expect(agent).toContain("const PROFILE_EVENT = 'primeprop:agent-profile-ready'");
+    expect(agent).toContain('window.addEventListener(PROFILE_EVENT');
+    expect(agent).toContain('window.PrimePropAgentProfileState?.profile');
+    expect(agent).toContain('const agentId = positiveId(profile?.id)');
+    expect(agent).not.toContain('new URLSearchParams');
+    expect(agent).not.toContain('/auth/public-agents/');
+    expect(agent).not.toContain('new MutationObserver');
+  });
+
+  it('removes superseded return and reviewer-CSRF implementations', () => {
+    const policy = source('worker/src/feedback-policy.ts');
+    const returns = source('worker/src/feedback-return.ts');
+    const csrf = source('worker/src/feedback-csrf.ts');
+
+    expect(policy).not.toContain('SAFE_RETURN_PATHS');
+    expect(policy).not.toContain('safeFeedbackReturnPath');
+    expect(policy).not.toContain('returnPathWithFeedbackStatus');
+    expect(policy).not.toContain('validateReviewerCsrf');
+    expect(returns).toContain('export function safeFeedbackReturn');
+    expect(returns).toContain('export function feedbackReturnWithStatus');
+    expect(csrf).toContain('export async function validateSessionCsrf');
+  });
+
+  it('renders centered dialogs, profile report controls and approved comments', () => {
     const client = source('public/js/feedback-client.js');
     const listing = source('public/js/listing-feedback.js');
     const agent = source('public/js/agent-feedback.js');
@@ -81,18 +115,25 @@ describe('feedback CSRF recovery and frontend contracts', () => {
     expect(listing).toContain('Ratings, reviews and safety');
     expect(listing).toContain("feedback.currentReturnPath('rate-agent')");
     expect(listing).toContain("feedback.currentReturnPath(action)");
+    expect(agent).toContain('Report this agent');
+    expect(agent).toContain("feedback.currentReturnPath('report-agent')");
+    expect(agent).toContain("targetType: 'agent'");
     expect(agent).toContain('Ratings and reviews');
     expect(agent).toContain('Approved review comments');
     expect(agent).toContain('No approved written comments have been published yet.');
-    expect(agent).toContain('Ratings are unavailable for this legacy listing profile');
+    expect(agent).toContain('Ratings, review comments and agent reports are unavailable for this legacy listing profile');
   });
 
-  it('records both reviewer CSRF incidents in the permanent error bank', () => {
+  it('records the reviewer feedback incidents in the error bank', () => {
     const errors = source('errors.md');
+    const profileError = source('docs/errors/PP-ERR-049-agent-profile-feedback-source.md');
+
     expect(errors).toContain('PP-ERR-047');
     expect(errors).toContain('PP-ERR-048');
     expect(errors).toContain('CSRF token mismatch');
     expect(errors).toContain('automatic Google return');
     expect(errors).toContain('stale professional CSRF cookie');
+    expect(profileError).toContain('PP-ERR-049');
+    expect(profileError).toContain('single resolved profile');
   });
 });

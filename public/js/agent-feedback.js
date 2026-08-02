@@ -3,11 +3,11 @@
   'use strict';
 
   const feedback = window.PrimePropFeedback;
-  if (!feedback) return;
-  const params = new URLSearchParams(window.location.search);
-  const agentIdValue = params.get('id');
-  const agentId = agentIdValue && /^\d+$/.test(agentIdValue) ? Number(agentIdValue) : 0;
-  let applied = false;
+  const client = window.PrimePropClient;
+  if (!feedback || !client) return;
+
+  const PROFILE_EVENT = 'primeprop:agent-profile-ready';
+  let appliedKey = '';
 
   const REPORT_OPTIONS = [
     ['misleading_information', 'Misleading information'],
@@ -18,15 +18,14 @@
     ['other', 'Other'],
   ];
 
-  async function getJson(path) {
-    const response = await fetch(path, {
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-    });
-    const body = await response.json().catch(() => null);
-    if (!response.ok || !body?.success || !body.data) {
-      throw new Error(body?.message || 'Agent feedback is unavailable.');
-    }
+  function positiveId(value) {
+    const id = Number(value);
+    return Number.isSafeInteger(id) && id > 0 ? id : 0;
+  }
+
+  async function getData(path) {
+    const body = await client.requestJson(path, { cache: 'no-store' });
+    if (!body?.data) throw new Error(body?.message || 'Agent feedback is unavailable.');
     return body.data;
   }
 
@@ -66,6 +65,8 @@
   }
 
   async function openRating(profile) {
+    const agentId = positiveId(profile?.id);
+    if (!agentId) return;
     const reviewer = await feedback.requireReviewer(feedback.currentReturnPath('rate-agent'));
     if (!reviewer) return;
     const listings = Array.isArray(profile.listings) ? profile.listings : [];
@@ -81,10 +82,17 @@
 
     const listing = document.createElement('select');
     for (const item of listings) {
+      const listingId = positiveId(item?.id);
+      if (!listingId) continue;
       const option = document.createElement('option');
-      option.value = String(item.id);
-      option.textContent = item.title || `Listing ${item.id}`;
+      option.value = String(listingId);
+      option.textContent = item.title || `Listing ${listingId}`;
       listing.appendChild(option);
+    }
+    if (!listing.options.length) {
+      modal.dialog.close();
+      feedback.showNotice('This agent has no approved listing available as the rating source.', 'error');
+      return;
     }
     modal.body.appendChild(feedback.field('Related listing', listing));
 
@@ -133,6 +141,8 @@
   }
 
   async function openReport(profile) {
+    const agentId = positiveId(profile?.id);
+    if (!agentId) return;
     const reviewer = await feedback.requireReviewer(feedback.currentReturnPath('report-agent'));
     if (!reviewer) return;
     const modal = feedback.openDialog(`Report ${profile.name || 'this agent'}`);
@@ -293,6 +303,16 @@
     headingRow.append(copy, summary);
     section.appendChild(headingRow);
 
+    if (data.loadError) {
+      const error = paragraph('Ratings and review comments could not be loaded. The report control remains available.');
+      error.style.marginTop = '18px';
+      error.style.padding = '18px';
+      error.style.background = '#fef2f2';
+      error.style.borderRadius = '12px';
+      section.appendChild(error);
+      return section;
+    }
+
     if (!data.total) {
       const empty = paragraph('No approved ratings have been published for this agent yet. You can submit the first rating using the button above.');
       empty.style.marginTop = '18px';
@@ -324,15 +344,18 @@
   }
 
   function apply(profile, ratings) {
-    if (applied) return;
+    const agentId = positiveId(profile?.id);
+    if (!agentId) return;
     const root = document.getElementById('agentProfileContent');
     if (!root?.querySelector('.agent-profile-hero')) return;
+    const key = `agent:${agentId}`;
+    if (appliedKey === key) return;
     const heroActions = ensureHeroActions(root);
     if (!heroActions) return;
-    applied = true;
+    appliedKey = key;
 
     if (!heroActions.querySelector('[data-feedback-action="rate-agent"]')) {
-      if (Array.isArray(profile.listings) && profile.listings.length) {
+      if (Array.isArray(profile.listings) && profile.listings.some(item => positiveId(item?.id))) {
         const rate = feedbackButton('Rate & review this agent', 'fa-solid fa-star', 'rate-agent');
         rate.addEventListener('click', () => openRating(profile));
         heroActions.appendChild(rate);
@@ -349,43 +372,56 @@
     insertRatings(root, renderRatings(ratings));
   }
 
-  function renderLegacyNotice() {
-    if (applied) return;
+  function renderLegacyNotice(profile) {
     const root = document.getElementById('agentProfileContent');
     if (!root?.querySelector('.agent-profile-hero')) return;
-    applied = true;
+    const key = `legacy:${String(profile?.name || '')}`;
+    if (appliedKey === key) return;
+    appliedKey = key;
     const section = element('section', '', 'agent-profile-section agent-feedback-section');
     section.id = 'agent-ratings';
     section.append(
       element('h2', 'Ratings and reviews'),
-      paragraph('Ratings are unavailable for this legacy listing profile because it is not linked to a registered PrimeProp agent identity. The listing can still be reported from its property page.'),
+      paragraph('Ratings, review comments and agent reports are unavailable for this legacy listing profile because it is not linked to a registered PrimeProp agent identity. The related property listing can still be reported from its property page.'),
     );
+    const existing = root.querySelector('#agent-ratings');
+    if (existing) existing.remove();
     insertRatings(root, section);
   }
 
-  async function tryApply() {
-    if (applied) return;
-    const root = document.getElementById('agentProfileContent');
-    if (!root?.querySelector('.agent-profile-hero')) return;
+  async function prepare(profile) {
+    const agentId = positiveId(profile?.id);
     if (!agentId) {
-      renderLegacyNotice();
+      renderLegacyNotice(profile);
       return;
     }
+
+    let ratings;
     try {
-      const [profile, ratings] = await Promise.all([
-        getJson(`/auth/public-agents/${encodeURIComponent(agentId)}`),
-        getJson(`/auth/feedback/agents/${encodeURIComponent(agentId)}/ratings`),
-      ]);
-      apply(profile, ratings);
+      ratings = await getData(`/auth/feedback/agents/${encodeURIComponent(agentId)}/ratings`);
     } catch (error) {
-      console.error('Agent feedback could not be loaded.', error);
+      console.error('Agent ratings and comments could not be loaded.', error);
+      ratings = {
+        total: 0,
+        average: 0,
+        distribution: {},
+        comments: [],
+        loadError: true,
+      };
     }
+    apply(profile, ratings);
   }
 
-  const observer = new MutationObserver(() => tryApply());
-  observer.observe(document.getElementById('agentProfileContent') || document.body, {
-    childList: true,
-    subtree: true,
+  window.addEventListener(PROFILE_EVENT, event => {
+    prepare(event.detail?.profile).catch(error => {
+      console.error('Agent feedback could not be prepared.', error);
+    });
   });
-  tryApply();
+
+  const currentProfile = window.PrimePropAgentProfileState?.profile;
+  if (currentProfile) {
+    prepare(currentProfile).catch(error => {
+      console.error('Agent feedback could not be prepared.', error);
+    });
+  }
 })();
