@@ -147,30 +147,41 @@ describe.sequential('stable administrator inventories', () => {
 
 describe.sequential('public listing contact actions', () => {
   it('opens WhatsApp and provides a validated call URL without exposing the number in listing JSON', async () => {
-    const listingResponse = await workerFetch('/api/listings/1');
-    const listing = await listingResponse.json() as {
-      success: boolean;
-      data: { agent: { phone: string } };
-    };
-    expect(listing.success).toBe(true);
-    expect(listing.data.agent.phone).toBe('');
+    const inserted = await testEnv.DB.prepare(
+      `INSERT INTO listings
+       (title, type, property_type, price, location, city, agent_phone, created_by)
+       VALUES (?, 'rent', 'apartment', 1850000, 'Contact Fixture, Lagos', 'Lagos', '2348012345678', NULL)`,
+    ).bind(`Public contact ${crypto.randomUUID()}`).run();
+    const listingId = Number(inserted.meta.last_row_id);
 
-    const whatsapp = await workerFetch('/auth/listing-contact/1/whatsapp');
-    const call = await workerFetch('/auth/listing-contact/1/call');
+    try {
+      const listingResponse = await workerFetch(`/api/listings/${listingId}`);
+      const listing = await listingResponse.json() as {
+        success: boolean;
+        data: { agent: { phone: string } };
+      };
+      expect(listing.success).toBe(true);
+      expect(listing.data.agent.phone).toBe('');
 
-    expect(whatsapp.status).toBe(302);
-    expect(whatsapp.headers.get('cache-control')).toContain('no-store');
-    expect(whatsapp.headers.get('location')).toMatch(/^https:\/\/wa\.me\/2348000000001\?text=/);
-    expect(call.status).toBe(200);
-    expect(call.headers.get('cache-control')).toContain('no-store');
-    const callBody = await call.json() as {
-      success: boolean;
-      data: { callUrl: string };
-    };
-    expect(callBody).toEqual({
-      success: true,
-      data: { callUrl: 'tel:+2348000000001' },
-    });
+      const whatsapp = await workerFetch(`/auth/listing-contact/${listingId}/whatsapp`);
+      const call = await workerFetch(`/auth/listing-contact/${listingId}/call`);
+
+      expect(whatsapp.status).toBe(302);
+      expect(whatsapp.headers.get('cache-control')).toContain('no-store');
+      expect(whatsapp.headers.get('location')).toMatch(/^https:\/\/wa\.me\/2348012345678\?text=/);
+      expect(call.status).toBe(200);
+      expect(call.headers.get('cache-control')).toContain('no-store');
+      const callBody = await call.json() as {
+        success: boolean;
+        data: { callUrl: string };
+      };
+      expect(callBody).toEqual({
+        success: true,
+        data: { callUrl: 'tel:+2348012345678' },
+      });
+    } finally {
+      await testEnv.DB.prepare('DELETE FROM listings WHERE id = ?').bind(listingId).run();
+    }
   });
 
   it('does not publish contact routes for an inactive account owner', async () => {
