@@ -35,22 +35,27 @@ function cookieHeader(jar: CookieJar): string {
   return [...jar.entries()].map(([name, value]) => `${name}=${value}`).join('; ');
 }
 
-async function workerFetch(path: string, jar: CookieJar, init: RequestInit = {}): Promise<Response> {
+async function workerFetch(
+  path: string,
+  jar: CookieJar,
+  init: RequestInit = {},
+  ipAddress = '203.0.113.44',
+): Promise<Response> {
   const headers = new Headers(init.headers || {});
   const cookies = cookieHeader(jar);
   if (cookies) headers.set('Cookie', cookies);
   if (!headers.has('User-Agent')) headers.set('User-Agent', 'PrimeProp session lifecycle test');
-  if (!headers.has('CF-Connecting-IP')) headers.set('CF-Connecting-IP', '203.0.113.44');
+  if (!headers.has('CF-Connecting-IP')) headers.set('CF-Connecting-IP', ipAddress);
   return exports.default.fetch(new Request(`${BASE}${path}`, { ...init, headers }));
 }
 
-async function login(): Promise<CookieJar> {
+async function login(ipAddress = '203.0.113.44'): Promise<CookieJar> {
   const jar: CookieJar = new Map();
   const response = await workerFetch('/auth/login', jar, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD }),
-  });
+  }, ipAddress);
   expect(response.status).toBe(200);
   applySetCookies(jar, response.headers);
   expect(jar.get('pp_session')).toBeTruthy();
@@ -89,7 +94,7 @@ describe('full professional session expiry lifecycle', () => {
   });
 
   it('survives a direct session check racing a protected dashboard read', async () => {
-    const jar = await login();
+    const jar = await login('203.0.113.45');
     expireAccess(jar);
     const startingCookie = cookieHeader(jar);
 
@@ -98,14 +103,14 @@ describe('full professional session expiry lifecycle', () => {
         headers: {
           Cookie: startingCookie,
           'User-Agent': 'PrimeProp session lifecycle test',
-          'CF-Connecting-IP': '203.0.113.44',
+          'CF-Connecting-IP': '203.0.113.45',
         },
       })),
       exports.default.fetch(new Request(`${BASE}/auth/admin-listings?limit=10`, {
         headers: {
           Cookie: startingCookie,
           'User-Agent': 'PrimeProp session lifecycle test',
-          'CF-Connecting-IP': '203.0.113.44',
+          'CF-Connecting-IP': '203.0.113.45',
         },
       })),
     ]);
@@ -133,10 +138,11 @@ describe('full professional session expiry lifecycle', () => {
       '/api/uploads?limit=10',
     ];
 
-    for (const path of paths) {
-      const jar = await login();
+    for (const [index, path] of paths.entries()) {
+      const ipAddress = `203.0.113.${60 + index}`;
+      const jar = await login(ipAddress);
       expireAccess(jar);
-      const response = await workerFetch(path, jar);
+      const response = await workerFetch(path, jar, {}, ipAddress);
       const values = applySetCookies(jar, response.headers);
       expect(response.status, path).toBe(200);
       expect(jar.get('pp_session'), `${path} access`).toBeTruthy();
