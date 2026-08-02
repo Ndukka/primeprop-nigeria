@@ -4,8 +4,8 @@ import { env, exports } from 'cloudflare:workers';
 const BASE = 'https://primeprop-worker.ndupsn.workers.dev';
 const testEnv = env as unknown as { DB: D1Database };
 
-async function workerFetch(path: string): Promise<Response> {
-  return exports.default.fetch(new Request(`${BASE}${path}`));
+async function workerFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  return exports.default.fetch(new Request(`${BASE}${path}`, init));
 }
 
 describe('live listing contact identity', () => {
@@ -19,7 +19,7 @@ describe('live listing contact identity', () => {
 
     try {
       const [whatsapp, call] = await Promise.all([
-        workerFetch(`/auth/listing-contact/${listingId}/whatsapp`),
+        workerFetch(`/auth/listing-contact/${listingId}/whatsapp`, { redirect: 'manual' }),
         workerFetch(`/auth/listing-contact/${listingId}/call`),
       ]);
 
