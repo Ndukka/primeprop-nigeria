@@ -86,12 +86,15 @@ describe('public and agent data-action regressions', () => {
     expect(catalogue).toContain("district.linkType === 'land'");
   });
 
-  it('repairs card and detail contact actions with same-origin redirects', () => {
+  it('repairs WhatsApp redirects and hydrates a validated telephone link', () => {
     const catalogue = generatedSource('js/catalog-data.js');
 
     expect(catalogue).toContain('applyContactRoutes');
+    expect(catalogue).toContain('hydrateCallLink');
     expect(catalogue).toContain('/auth/listing-contact/${encodeURIComponent(id)}/whatsapp');
     expect(catalogue).toContain('/auth/listing-contact/${encodeURIComponent(id)}/call');
+    expect(catalogue).toContain("if (!/^tel:\\+\\d{10,15}$/.test(callUrl))");
+    expect(catalogue).toContain("anchor.dataset.ppCallState = 'ready'");
     expect(catalogue).toContain('RETIRED_CONTACT');
   });
 
