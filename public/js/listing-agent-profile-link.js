@@ -10,13 +10,25 @@
   }
 
   async function loadAgentId(id) {
-    const response = await fetch(`/api/listings/${encodeURIComponent(id)}`, {
+    const listingResponse = await fetch(`/api/listings/${encodeURIComponent(id)}`, {
+      cache: 'no-store',
       headers: { Accept: 'application/json' },
     });
-    const body = await response.json().catch(() => null);
-    if (!response.ok || !body?.success) return null;
-    const agentId = Number(body.data?.agent?.id || 0);
-    return Number.isSafeInteger(agentId) && agentId > 0 ? agentId : null;
+    const listingBody = await listingResponse.json().catch(() => null);
+    if (!listingResponse.ok || !listingBody?.success) return null;
+
+    const candidateId = Number(listingBody.data?.agent?.id || 0);
+    if (!Number.isSafeInteger(candidateId) || candidateId <= 0) return null;
+
+    const profileResponse = await fetch(`/auth/public-agents/${encodeURIComponent(candidateId)}`, {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (!profileResponse.ok) return null;
+    const profileBody = await profileResponse.json().catch(() => null);
+    return profileBody?.success && Number(profileBody.data?.id) === candidateId
+      ? candidateId
+      : null;
   }
 
   function resetCardStyle(card) {
