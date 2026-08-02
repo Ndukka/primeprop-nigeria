@@ -1,5 +1,5 @@
 import { authRoutes, requireAuth, requireRole } from './auth';
-import { safeJsonParse } from './utils';
+import { safeJsonParse, sanitizePositiveInt } from './utils';
 
 type SchemaColumn = { name: string };
 
@@ -13,6 +13,35 @@ type DistrictRow = {
   link_type: string | null;
   created_at: string | null;
 };
+
+type ListingContactRow = {
+  title: string;
+  location: string;
+  price: number;
+  phone: string | null;
+};
+
+function districtDto(district: DistrictRow) {
+  return {
+    id: district.id,
+    name: district.name,
+    city: district.city,
+    description: district.description || '',
+    checks: safeJsonParse(district.checks, []),
+    image: district.image || '',
+    linkType: district.link_type || 'all',
+    createdAt: district.created_at || '',
+  };
+}
+
+async function districtRows(c: any) {
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, name, city, description, checks, image, link_type, created_at
+     FROM districts
+     ORDER BY id ASC`,
+  ).all<DistrictRow>();
+  return (results || []).map(districtDto);
+}
 
 async function usersProjection(c: any): Promise<string> {
   const schema = await c.env.DB.prepare('PRAGMA table_info(users)').all<SchemaColumn>();
@@ -45,25 +74,38 @@ async function usersProjection(c: any): Promise<string> {
   ].join(', ');
 }
 
+function normalizeContactNumber(value: unknown): string {
+  let digits = String(value || '').replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('0')) digits = `234${digits.slice(1)}`;
+  return /^\d{10,15}$/.test(digits) ? digits : '';
+}
+
+async function listingContact(c: any, id: number): Promise<ListingContactRow | null> {
+  return c.env.DB.prepare(
+    `SELECT l.title, l.location, l.price,
+            CASE
+              WHEN l.created_by IS NULL THEN NULLIF(l.agent_phone, '')
+              WHEN u.id IS NOT NULL THEN COALESCE(NULLIF(l.agent_phone, ''), NULLIF(u.phone, ''))
+              ELSE NULL
+            END AS phone
+     FROM listings l
+     LEFT JOIN users u
+       ON u.id = l.created_by
+      AND COALESCE(u.account_status, 'active') = 'active'
+     WHERE l.id = ?`,
+  ).bind(id).first<ListingContactRow>();
+}
+
+authRoutes.get('/district-guides', async c => {
+  c.header('Cache-Control', 'public, max-age=300, stale-while-revalidate=600');
+  const data = await districtRows(c);
+  return c.json({ success: true, count: data.length, data });
+});
+
 authRoutes.get('/admin-districts', requireAuth, requireRole('admin'), async c => {
   c.header('Cache-Control', 'no-store');
-  const { results } = await c.env.DB.prepare(
-    `SELECT id, name, city, description, checks, image, link_type, created_at
-     FROM districts
-     ORDER BY id ASC`,
-  ).all<DistrictRow>();
-
-  const data = (results || []).map(district => ({
-    id: district.id,
-    name: district.name,
-    city: district.city,
-    description: district.description || '',
-    checks: safeJsonParse(district.checks, []),
-    image: district.image || '',
-    linkType: district.link_type || 'all',
-    createdAt: district.created_at || '',
-  }));
-
+  const data = await districtRows(c);
   return c.json({ success: true, count: data.length, data });
 });
 
@@ -88,4 +130,37 @@ authRoutes.get('/admin-users', requireAuth, requireRole('admin'), async c => {
   }));
 
   return c.json({ success: true, count: data.length, data });
+});
+
+authRoutes.get('/listing-contact/:id/whatsapp', async c => {
+  c.header('Cache-Control', 'no-store');
+  const id = sanitizePositiveInt(c.req.param('id'), 0, 1, Number.MAX_SAFE_INTEGER);
+  if (!id) return c.json({ success: false, message: 'Invalid listing ID' }, 400);
+
+  const contact = await listingContact(c, id);
+  if (!contact) return c.json({ success: false, message: 'Listing not found' }, 404);
+  const phone = normalizeContactNumber(contact.phone);
+  if (!phone) return c.json({ success: false, message: 'Agent contact is not available' }, 404);
+
+  const text = [
+    `Hello, I'm interested in ${contact.title}`,
+    contact.location ? `in ${contact.location}` : '',
+    Number.isFinite(Number(contact.price)) ? `(₦${Number(contact.price).toLocaleString()})` : '',
+    'Is it still available? I would like to schedule an inspection.',
+  ].filter(Boolean).join(' ');
+
+  return c.redirect(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, 302);
+});
+
+authRoutes.get('/listing-contact/:id/call', async c => {
+  c.header('Cache-Control', 'no-store');
+  const id = sanitizePositiveInt(c.req.param('id'), 0, 1, Number.MAX_SAFE_INTEGER);
+  if (!id) return c.json({ success: false, message: 'Invalid listing ID' }, 400);
+
+  const contact = await listingContact(c, id);
+  if (!contact) return c.json({ success: false, message: 'Listing not found' }, 404);
+  const phone = normalizeContactNumber(contact.phone);
+  if (!phone) return c.json({ success: false, message: 'Agent contact is not available' }, 404);
+
+  return c.redirect(`tel:+${phone}`, 302);
 });
