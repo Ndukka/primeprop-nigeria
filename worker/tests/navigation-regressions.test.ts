@@ -71,7 +71,7 @@ describe('clean-route and loading regressions', () => {
 
     expect(listingPage).toContain(listingLinkUrl);
     expect(listingLink).toContain("#detailContent .detail-sidebar .detail-contact-card");
-    expect(listingLink).toContain('/agent-profile?id=${encodeURIComponent(candidateId)}');
+    expect(listingLink).toContain('/agent-profile?id=${encodeURIComponent(agentId)}');
     expect(listingLink).toContain('/agent-profile?listing=${encodeURIComponent(publicListingId)}');
     expect(listingLink).toContain("document.createTextNode(' View full agent profile')");
     expect(profileClient).toContain('function legacyProfileFromListing(listing)');
