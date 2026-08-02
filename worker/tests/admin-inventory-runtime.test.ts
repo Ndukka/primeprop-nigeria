@@ -207,7 +207,7 @@ describe.sequential('public listing contact actions', () => {
       const response = await workerFetch(`/auth/listing-contact/${listingId}/whatsapp`);
       expect(response.status).toBe(404);
       const body = await response.json() as { message: string };
-      expect(body.message).toMatch(/not available/i);
+      expect(body.message).toBe('Listing not found');
     } finally {
       await testEnv.DB.batch([
         testEnv.DB.prepare("UPDATE users SET account_status = 'active' WHERE id = 2"),
