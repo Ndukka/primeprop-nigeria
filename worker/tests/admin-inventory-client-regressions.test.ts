@@ -70,6 +70,9 @@ describe('administrator inventory browser regressions', () => {
     expect(compat).toContain("value.startsWith('/api/images/')");
     expect(compat).toContain("option[value=\"user\"]");
     expect(compat).toContain('email.disabled = Boolean(id)');
+    expect(compat).toContain('/auth/admin-users/${encodeURIComponent(id)}');
+    expect(compat).toContain("body: JSON.stringify({ account_status: accountStatus })");
+    expect(compat).toContain('await window.loadUsersData()');
   });
 });
 
