@@ -73,6 +73,8 @@ describe('feedback architecture and privacy contracts', () => {
     expect(policy).toContain("export const FEEDBACK_SESSION_COOKIE = '__Host-pp_feedback_session'");
     expect(policy).not.toContain('google_access_token');
     expect(policy).not.toContain('google_refresh_token');
+    expect(auth).toContain("url.searchParams.set('scope', 'openid email')");
+    expect(auth).not.toContain("openid email profile");
   });
 
   it('masks reviewer email before constructing the public response DTO', () => {
@@ -97,6 +99,40 @@ describe('feedback architecture and privacy contracts', () => {
     expect(helpers).toContain('pp_(?:session|refresh)');
     expect(client).toContain("'X-CSRF-Token': csrf");
     expect(client).toContain('Authorization: `Feedback ${csrf}`');
+  });
+
+  it('captures only trusted report evidence and applies bounded retention', () => {
+    const migration = source('worker/migrations/0019_listing_report_evidence_and_takedown.sql');
+    const helpers = source('worker/src/feedback-route-helpers.ts');
+    const writes = source('worker/src/feedback-write-routes.ts');
+    const evidence = source('worker/src/feedback-evidence-policy.ts');
+    const cases = source('worker/src/feedback-report-case-routes.ts');
+
+    expect(migration).toContain('reporter_email_snapshot');
+    expect(migration).toContain('reporter_ip_hash');
+    expect(migration).toContain('evidence_expires_at');
+    expect(migration).toContain("listing_action IN ('none', 'taken_down')");
+    expect(helpers).toContain("c.req.header('CF-Connecting-IP')");
+    expect(helpers).not.toContain("c.req.header('X-Forwarded-For')");
+    expect(helpers).toContain("c.req.header('CF-IPCountry')");
+    expect(evidence).toContain("{ name: 'HMAC', hash: 'SHA-256' }");
+    expect(writes).toContain('reporter_email_snapshot');
+    expect(writes).toContain('networkEvidenceFingerprint');
+    expect(cases).toContain('CLOSED_EVIDENCE_RETENTION_DAYS = 90');
+    expect(cases).toContain('reporter_ip = NULL');
+    expect(cases).toContain("evidence_expires_at <= datetime('now')");
+    expect(cases).not.toContain('google_sub');
+  });
+
+  it('takes down a reported listing atomically without deleting the record', () => {
+    const cases = source('worker/src/feedback-report-case-routes.ts');
+
+    expect(cases).toContain("'take_down_listing'");
+    expect(cases).toContain('await env.DB.batch([');
+    expect(cases).toContain("SET approval_status = 'pending'");
+    expect(cases).toContain("listing_action = 'taken_down'");
+    expect(cases).toContain("'listing.moderation.taken_down'");
+    expect(cases).not.toMatch(/DELETE FROM listings/i);
   });
 
   it('emits feedback assets and loads them only on relevant routes', () => {
@@ -129,10 +165,14 @@ describe('feedback architecture and privacy contracts', () => {
     expect(listing).toContain('Rate this agent');
     expect(listing).toContain('Report this listing');
     expect(listing).toContain('Report this agent');
+    expect(listing).toContain('Exact network evidence is deleted 90 days after the case closes');
     expect(profile).toContain('Agent ratings');
     expect(profile).toContain('reviewerLabel');
     expect(admin).toContain('Approve score');
     expect(admin).toContain('Approve comment');
+    expect(admin).toContain('Reporter details');
+    expect(admin).toContain('Take down listing');
+    expect(admin).toContain('Google email at submission');
     expect(admin).toContain('Ban email');
     expect(admin).toContain('Unban');
     for (const script of [listing, profile, admin]) {
