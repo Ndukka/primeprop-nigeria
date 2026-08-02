@@ -6,14 +6,18 @@ const WORKER_DIR = resolve(__dirname, '..');
 const REPOSITORY_DIR = resolve(WORKER_DIR, '..');
 const DIST_DIR = resolve(REPOSITORY_DIR, 'dist-public');
 
+function readDist(relativePath: string): string {
+  return readFileSync(resolve(DIST_DIR, relativePath), 'utf8');
+}
+
 const manifest = JSON.parse(
-  readFileSync(resolve(DIST_DIR, 'asset-manifest.json'), 'utf8'),
+  readDist('asset-manifest.json'),
 ) as { assets: Record<string, string> };
 
 function generatedSource(sourcePath: string): string {
   const generatedPath = manifest.assets[sourcePath];
   expect(generatedPath, `${sourcePath} must be emitted`).toBeTruthy();
-  return readFileSync(resolve(DIST_DIR, generatedPath.replace(/^\//, '')), 'utf8');
+  return readDist(generatedPath.replace(/^\//, ''));
 }
 
 describe('administrator inventory browser regressions', () => {
@@ -50,5 +54,50 @@ describe('administrator inventory browser regressions', () => {
     ]) {
       expect(source).toContain(action);
     }
+  });
+
+  it('loads the narrow admin compatibility runtime after the main adapter', () => {
+    const html = readDist('admin.html');
+    const dataUrl = manifest.assets['js/admin-data.js'];
+    const compatUrl = manifest.assets['js/admin-compat.js'];
+
+    expect(dataUrl).toBeTruthy();
+    expect(compatUrl).toBeTruthy();
+    expect(html.indexOf(`src="${dataUrl}"`)).toBeGreaterThan(-1);
+    expect(html.indexOf(`src="${compatUrl}"`)).toBeGreaterThan(html.indexOf(`src="${dataUrl}"`));
+
+    const compat = generatedSource('js/admin-compat.js');
+    expect(compat).toContain("value.startsWith('/api/images/')");
+    expect(compat).toContain("option[value=\"user\"]");
+    expect(compat).toContain('email.disabled = Boolean(id)');
+  });
+});
+
+describe('public and agent data-action regressions', () => {
+  it('routes public district guides through a stable camelCase endpoint', () => {
+    const catalogue = generatedSource('js/catalog-data.js');
+
+    expect(catalogue).toContain("client.requestJson('/auth/district-guides'");
+    expect(catalogue).toContain("district.linkType === 'sale'");
+    expect(catalogue).toContain("district.linkType === 'rent'");
+    expect(catalogue).toContain("district.linkType === 'land'");
+  });
+
+  it('repairs card and detail contact actions with same-origin redirects', () => {
+    const catalogue = generatedSource('js/catalog-data.js');
+
+    expect(catalogue).toContain('applyContactRoutes');
+    expect(catalogue).toContain('/auth/listing-contact/${encodeURIComponent(id)}/whatsapp');
+    expect(catalogue).toContain('/auth/listing-contact/${encodeURIComponent(id)}/call');
+    expect(catalogue).toContain('RETIRED_CONTACT');
+  });
+
+  it('routes agent deletes through ownership-aware endpoints', () => {
+    const agent = generatedSource('js/agent-data.js');
+
+    expect(agent).toContain("['PUT', 'DELETE'].includes(method)");
+    expect(agent).toContain("'/auth/listing-records/'");
+    expect(agent).toContain("value.startsWith('/api/images/')");
+    expect(agent).toContain('window.isSafeUrl = safeMediaUrl');
   });
 });
