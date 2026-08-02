@@ -61,6 +61,16 @@ async function usersProjection(c: any): Promise<string> {
     }
   }
 
+  const optionalText = (column: string, fallback = '') => columns.has(column)
+    ? `COALESCE(${column}, '') AS ${column}`
+    : `'${fallback.replace(/'/g, "''")}' AS ${column}`;
+  const optionalJson = (column: string) => columns.has(column)
+    ? `COALESCE(${column}, '[]') AS ${column}`
+    : `'[]' AS ${column}`;
+  const optionalNumber = (column: string) => columns.has(column)
+    ? `COALESCE(${column}, 0) AS ${column}`
+    : `0 AS ${column}`;
+
   return [
     'id',
     'email',
@@ -68,6 +78,7 @@ async function usersProjection(c: any): Promise<string> {
     'role',
     'avatar_url',
     'phone',
+    columns.has('agent_title') ? "COALESCE(agent_title, 'Listing Agent') AS agent_title" : "'Listing Agent' AS agent_title",
     columns.has('account_status')
       ? "COALESCE(account_status, 'active') AS account_status"
       : "'active' AS account_status",
@@ -77,6 +88,29 @@ async function usersProjection(c: any): Promise<string> {
     columns.has('login_count')
       ? 'COALESCE(login_count, 0) AS login_count'
       : '0 AS login_count',
+    optionalText('bio'),
+    optionalText('organization_name'),
+    optionalText('organization_role'),
+    optionalText('organization_website'),
+    optionalText('organization_address'),
+    optionalText('organization_logo_url'),
+    optionalText('public_email'),
+    optionalText('website_url'),
+    optionalJson('service_areas'),
+    optionalJson('specialties'),
+    optionalJson('languages'),
+    optionalJson('professional_memberships'),
+    optionalNumber('years_experience'),
+    optionalText('license_body'),
+    optionalText('license_number'),
+    optionalText('response_time'),
+    optionalText('office_hours'),
+    optionalText('linkedin_url'),
+    optionalText('instagram_url'),
+    optionalNumber('profile_verified'),
+    columns.has('profile_published')
+      ? 'COALESCE(profile_published, 1) AS profile_published'
+      : '1 AS profile_published',
     'created_at',
   ].join(', ');
 }
@@ -89,9 +123,31 @@ function userDto(user: any) {
     role: user.role === 'admin' ? 'admin' : 'agent',
     avatarUrl: String(user.avatar_url || ''),
     phone: String(user.phone || ''),
+    agentTitle: String(user.agent_title || 'Listing Agent'),
     accountStatus: String(user.account_status || 'active'),
     lastLoginAt: user.last_login_at == null ? '' : String(user.last_login_at),
     loginCount: Number(user.login_count || 0),
+    bio: String(user.bio || ''),
+    organizationName: String(user.organization_name || ''),
+    organizationRole: String(user.organization_role || ''),
+    organizationWebsite: String(user.organization_website || ''),
+    organizationAddress: String(user.organization_address || ''),
+    organizationLogoUrl: String(user.organization_logo_url || ''),
+    publicEmail: String(user.public_email || ''),
+    websiteUrl: String(user.website_url || ''),
+    serviceAreas: safeJsonParse(user.service_areas, []),
+    specialties: safeJsonParse(user.specialties, []),
+    languages: safeJsonParse(user.languages, []),
+    professionalMemberships: safeJsonParse(user.professional_memberships, []),
+    yearsExperience: Number(user.years_experience || 0),
+    licenseBody: String(user.license_body || ''),
+    licenseNumber: String(user.license_number || ''),
+    responseTime: String(user.response_time || ''),
+    officeHours: String(user.office_hours || ''),
+    linkedinUrl: String(user.linkedin_url || ''),
+    instagramUrl: String(user.instagram_url || ''),
+    profileVerified: Boolean(user.profile_verified),
+    profilePublished: Boolean(user.profile_published),
     createdAt: user.created_at == null ? '' : String(user.created_at),
   };
 }

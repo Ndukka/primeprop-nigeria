@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Profile | PrimeProp Nigeria</title>
+    <meta name="description" content="View a PrimeProp Nigeria agent profile, organisation details, areas of practice, credentials and active property listings.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="agent-profile.css">
+</head>
+<body>
+
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <div class="container">
+        <!-- Header (shared across all pages) -->
+        <header>
+            <a href="index.html" class="logo">
+                <div class="logo-icon"><i class="fa-solid fa-building"></i></div>
+                <div class="logo-text">
+                    <span class="prime">PrimeProp</span>
+                    <span class="ng">Nigeria</span>
+                </div>
+            </a>
+            <nav>
+                <a href="index.html">Home</a>
+                <a href="properties.html">Listings</a>
+                <a href="properties-rent.html">Rent</a>
+                <a href="properties-sale.html">Buy</a>
+                <a href="properties-land.html">Land</a>
+                <a href="areas.html">Area Guides</a>
+            </nav>
+            <a href="properties.html" class="btn btn-primary">Browse Properties</a>
+        </header>
+
+        <main id="main-content" class="agent-profile-page">
+            <a href="properties.html" class="back-link" data-pp-action="back"><i class="fa-solid fa-arrow-left"></i> Back to listings</a>
+            <div id="agentProfileContent" aria-live="polite">
+                <div class="agent-profile-loading" role="status">
+                    <span class="agent-profile-loading__avatar"></span>
+                    <span class="agent-profile-loading__line agent-profile-loading__line--wide"></span>
+                    <span class="agent-profile-loading__line"></span>
+                    <span class="agent-profile-loading__line agent-profile-loading__line--short"></span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Footer (shared across all pages) -->
+    <footer>
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-brand">
+                    <a href="index.html" class="logo" style="color: white;">
+                        <div class="logo-icon"><i class="fa-solid fa-building"></i></div>
+                        <div class="logo-text">
+                            <span class="prime">PrimeProp</span>
+                            <span class="ng" style="color: #94a3b8;">Nigeria</span>
+                        </div>
+                    </a>
+                    <p>Nigeria's trusted property marketplace. Search, compare, and connect with property listers using complete cost and availability information.</p>
+                </div>
+                <div class="footer-col">
+                    <h4>Browse</h4>
+                    <ul>
+                        <li><a href="properties-rent.html">For rent</a></li>
+                        <li><a href="properties-sale.html">For sale</a></li>
+                        <li><a href="properties-land.html">Land</a></li>
+                        <li><a href="areas.html">Area guides</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Marketplace</h4>
+                    <ul>
+                        <li><a href="properties.html">All listings</a></li>
+                        <li><a href="#">Saved properties</a></li>
+                        <li><a href="#">Compare</a></li>
+                        <li><a href="#">List a property</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Account</h4>
+                    <ul>
+                        <li><a href="#">Sign in</a></li>
+                        <li><a href="#">Get started</a></li>
+                        <li><a href="#">Organization</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Help</h4>
+                    <ul>
+                        <li><a href="#">How it works</a></li>
+                        <li><a href="#">Safety checklist</a></li>
+                        <li><a href="#">Report an issue</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="footer-safety">
+                <p><strong>⚠ Before you pay:</strong> Confirm the lister, property, documents, availability, and every fee independently.</p>
+                <a href="#">Review the inspection checklist &rarr;</a>
+            </div>
+
+            <div class="footer-bottom">
+                <div>&copy; 2026 PrimeProp Nigeria. All rights reserved.</div>
+                <div class="footer-bottom-links">
+                    <a href="#">Privacy policy</a>
+                    <a href="#">Terms of service</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/app.js"></script>
+    <script src="js/agent-profile.js"></script>
+</body>
+</html>

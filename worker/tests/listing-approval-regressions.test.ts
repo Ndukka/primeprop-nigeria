@@ -19,6 +19,19 @@ function generatedSource(sourcePath: string): string {
   return readFileSync(resolve(DIST_DIR, generated.replace(/^\//, '')), 'utf8');
 }
 
+function generatedAssetUrl(sourcePath: string): string {
+  const manifest = JSON.parse(
+    readFileSync(resolve(DIST_DIR, 'asset-manifest.json'), 'utf8'),
+  ) as { assets: Record<string, string> };
+  const generated = manifest.assets[sourcePath];
+  expect(generated, `${sourcePath} must be emitted`).toBeTruthy();
+  return generated;
+}
+
+function generatedPage(relativePath: string): string {
+  return readFileSync(resolve(DIST_DIR, relativePath), 'utf8');
+}
+
 describe('agent listing approval source safeguards', () => {
   it('routes every legacy listing read and write through approval-aware handlers', () => {
     const productionEntry = source('src/production-entry.ts');
@@ -103,5 +116,54 @@ describe('agent listing approval source safeguards', () => {
     expect(productionEntry).toContain("return jsonResponse({ success: false, message: 'Not found' }, 404)");
     expect(productionEntry).toContain('const mediaAccess = await trackedMediaAccess(request, env)');
     expect(productionEntry).toContain('if (mediaAccess.tracked) response = withTrackedMediaCachePolicy(response)');
+  });
+
+  it('keeps rich profile data in one editable user record with administrator-controlled verification', () => {
+    const migration = source('migrations/0017_agent_public_profiles.sql');
+    const routes = source('src/role-profile-routes.ts');
+    const listingDto = source('src/utils.ts');
+
+    expect(migration).toContain('ALTER TABLE users ADD COLUMN bio');
+    expect(migration).toContain('ALTER TABLE users ADD COLUMN organization_name');
+    expect(migration).toContain('ALTER TABLE users ADD COLUMN service_areas');
+    expect(migration).toContain('ALTER TABLE users ADD COLUMN profile_verified');
+    expect(migration).toContain('ALTER TABLE users ADD COLUMN profile_published');
+    expect(routes).toContain("authRoutes.get('/public-agents/:id'");
+    expect(routes).toContain("AND account_status = 'active'");
+    expect(routes).toContain('AND profile_published = 1');
+    expect(routes).toContain("approval_status = 'approved'");
+    expect(routes).toContain("'/admin-profile-settings/:id'");
+    expect(routes).toContain('editableProfileUpdates(body, includeVerification)');
+    expect(routes).toContain('if (includeVerification && body.profile_verified !== undefined)');
+    expect(listingDto).toContain('id: ownerId > 0 ? ownerId : null');
+  });
+
+  it('builds the themed agent page and injects profile editors and listing navigation', () => {
+    const page = generatedPage('agent-profile.html');
+    const listingPage = generatedPage('listing-detail.html');
+    const agentPage = generatedPage('agent.html');
+    const adminPage = generatedPage('admin.html');
+    const profileCssUrl = generatedAssetUrl('agent-profile.css');
+    const profileClientUrl = generatedAssetUrl('js/agent-profile.js');
+    const listingLinkUrl = generatedAssetUrl('js/listing-agent-profile-link.js');
+    const agentEditorUrl = generatedAssetUrl('js/agent-profile-editor.js');
+    const adminEditorUrl = generatedAssetUrl('js/admin-agent-profile-editor.js');
+    const profileClient = generatedSource('js/agent-profile.js');
+    const listingLink = generatedSource('js/listing-agent-profile-link.js');
+    const agentEditor = generatedSource('js/agent-profile-editor.js');
+    const adminEditor = generatedSource('js/admin-agent-profile-editor.js');
+
+    expect(page).toContain('id="agentProfileContent"');
+    expect(page).toContain(profileCssUrl);
+    expect(page).toContain(profileClientUrl);
+    expect(listingPage).toContain(listingLinkUrl);
+    expect(agentPage).toContain(agentEditorUrl);
+    expect(adminPage).toContain(adminEditorUrl);
+    expect(profileClient).toContain('/auth/public-agents/${encodeURIComponent(id)}');
+    expect(profileClient).toContain('Active listings');
+    expect(listingLink).toContain("#detailContent .detail-sidebar .detail-contact-card");
+    expect(listingLink).toContain('/agent-profile?id=${encodeURIComponent(agentId)}');
+    expect(agentEditor).toContain("'/auth/profile-settings'");
+    expect(adminEditor).toContain('/auth/admin-profile-settings/${encodeURIComponent(id)}');
   });
 });

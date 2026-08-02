@@ -20,6 +20,7 @@ const KNOWN_PAGE_FILENAMES = [
   'listing-detail-1.html',
   'listing-detail-2.html',
   'listing-detail-3.html',
+  'agent-profile.html',
   'login.html',
   'admin.html',
   'agent.html',
@@ -135,6 +136,11 @@ function normalizeQuotedRootAbsolutePageReferences(source) {
   return { prepared, count };
 }
 
+function appendScriptsBeforeBody(prepared, scripts) {
+  if (scripts.length === 0) return prepared;
+  return prepared.replace(/<\/body>/i, `${scripts.join('\n')}\n</body>`);
+}
+
 function injectClientRuntimes(source, relativePath) {
   if (!relativePath.endsWith('.html')) return { prepared: source, count: 0 };
 
@@ -167,16 +173,30 @@ function injectClientRuntimes(source, relativePath) {
       scripts.push('  <script src="js/admin-compat.js"></script>');
       count += 1;
     }
-    if (scripts.length > 0) {
-      prepared = prepared.replace(/<\/body>/i, `${scripts.join('\n')}\n</body>`);
+    if (!prepared.includes('js/admin-agent-profile-editor.js')) {
+      scripts.push('  <script src="js/admin-agent-profile-editor.js"></script>');
+      count += 1;
     }
+    prepared = appendScriptsBeforeBody(prepared, scripts);
   }
 
-  if (relativePath === 'public/agent.html' && !prepared.includes('js/agent-data.js')) {
-    prepared = prepared.replace(
-      /<\/body>/i,
-      '  <script src="js/agent-data.js"></script>\n</body>',
-    );
+  if (relativePath === 'public/agent.html') {
+    const scripts = [];
+    if (!prepared.includes('js/agent-data.js')) {
+      scripts.push('  <script src="js/agent-data.js"></script>');
+      count += 1;
+    }
+    if (!prepared.includes('js/agent-profile-editor.js')) {
+      scripts.push('  <script src="js/agent-profile-editor.js"></script>');
+      count += 1;
+    }
+    prepared = appendScriptsBeforeBody(prepared, scripts);
+  }
+
+  if (relativePath === 'public/listing-detail.html' && !prepared.includes('js/listing-agent-profile-link.js')) {
+    prepared = appendScriptsBeforeBody(prepared, [
+      '  <script src="js/listing-agent-profile-link.js"></script>',
+    ]);
     count += 1;
   }
 
