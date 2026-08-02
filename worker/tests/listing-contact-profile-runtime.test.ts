@@ -66,7 +66,7 @@ describe('live listing contact identity', () => {
     }
   });
 
-  it('supports self-service profile content, admin verification, publication controls, and approved listings only', async () => {
+  it('supports self-service profile content, admin verification, publication controls, suspension, and approved listings only', async () => {
     const original = await testEnv.DB.prepare(
       `SELECT bio, organization_name, organization_role, organization_website,
               organization_address, organization_logo_url, public_email,
@@ -128,6 +128,7 @@ describe('live listing contact identity', () => {
 
       const publicBeforeVerification = await workerFetch('/auth/public-agents/2');
       expect(publicBeforeVerification.status).toBe(200);
+      expect(publicBeforeVerification.headers.get('cache-control')).toBe('no-store');
       const publicBeforeBody = await publicBeforeVerification.json() as any;
       expect(publicBeforeBody.data.name).toBe('Ada Test Agent');
       expect(publicBeforeBody.data.bio).toContain('inspection planning');
@@ -138,6 +139,7 @@ describe('live listing contact identity', () => {
       expect(publicBeforeBody.data.email).toBeUndefined();
       expect(publicBeforeBody.data.account_status).toBeUndefined();
       expect(publicBeforeBody.data.listings[0].agent.id).toBe(2);
+      expect((await workerFetch('/auth/public-agents/1')).status).toBe(404);
 
       const adminToken = await login('test-admin@primeprop.invalid', 'TestAdmin123!');
       const adminUpdate = await workerFetch('/auth/admin-profile-settings/2', bearer(adminToken, {
@@ -157,17 +159,28 @@ describe('live listing contact identity', () => {
         profile_published: false,
       }));
       expect(hideProfile.status).toBe(200);
-      expect((await workerFetch('/auth/public-agents/2')).status).toBe(404);
+      const unpublished = await workerFetch('/auth/public-agents/2');
+      expect(unpublished.status).toBe(404);
+      expect(unpublished.headers.get('cache-control')).toBe('no-store');
 
       const showProfile = await workerFetch('/auth/profile-settings', bearer(agentToken, {
         profile_published: true,
       }));
       expect(showProfile.status).toBe(200);
       expect((await workerFetch('/auth/public-agents/2')).status).toBe(200);
+
+      await testEnv.DB.prepare("UPDATE users SET account_status = 'banned' WHERE id = 2").run();
+      const suspended = await workerFetch('/auth/public-agents/2');
+      expect(suspended.status).toBe(404);
+      expect(suspended.headers.get('cache-control')).toBe('no-store');
+
+      await testEnv.DB.prepare("UPDATE users SET account_status = 'active' WHERE id = 2").run();
+      expect((await workerFetch('/auth/public-agents/2')).status).toBe(200);
     } finally {
       await testEnv.DB.prepare('DELETE FROM listings WHERE id IN (?, ?)').bind(approvedId, pendingId).run();
       await testEnv.DB.prepare(
         `UPDATE users SET
+           account_status = 'active',
            bio = ?, organization_name = ?, organization_role = ?,
            organization_website = ?, organization_address = ?, organization_logo_url = ?,
            public_email = ?, website_url = ?, service_areas = ?, specialties = ?,
