@@ -16,18 +16,50 @@
   const unsupportedUserRole = roleSelect?.querySelector('option[value="user"]');
   if (unsupportedUserRole) unsupportedUserRole.remove();
 
-  const originalOpenUserModal = window.openUserModal;
-  if (typeof originalOpenUserModal === 'function') {
-    window.openUserModal = function openUserModal(id) {
-      originalOpenUserModal(id);
-      const email = document.getElementById('userFormEmail');
-      if (email) {
-        email.disabled = Boolean(id);
-        email.title = id ? 'Email changes require the account owner.' : '';
-      }
-      if (!id && roleSelect) roleSelect.value = 'agent';
-    };
-  }
+  window.openUserModal = function openUserModal(id) {
+    userEditId = id || null;
+    document.getElementById('userModalTitle').textContent = id ? 'Edit User' : 'Add User';
+    document.getElementById('userModalSaveBtn').textContent = id ? 'Update User' : 'Create User';
+
+    const email = document.getElementById('userFormEmail');
+    email.disabled = Boolean(id);
+    email.title = id ? 'Email changes require the account owner.' : '';
+
+    if (!id) {
+      window.resetUserForm();
+      if (roleSelect) roleSelect.value = 'agent';
+      document.getElementById('userModal').classList.add('active');
+      return;
+    }
+
+    client.requestJson(`/auth/admin-users/${encodeURIComponent(id)}`, {}, window.apiFetch)
+      .then(body => {
+        const user = body.data;
+        document.getElementById('userFormId').value = String(user.id);
+        document.getElementById('userFormName').value = user.name || '';
+        email.value = user.email || '';
+        if (roleSelect) roleSelect.value = user.role === 'admin' ? 'admin' : 'agent';
+        document.getElementById('userFormPhone').value = user.phone || '';
+        document.getElementById('userFormAvatar').value = user.avatarUrl || '';
+        document.getElementById('userFormPassword').value = '';
+
+        const preview = document.getElementById('userAvatarUploadPreview');
+        if (preview) {
+          window.clearContainer(preview);
+          if (safeManagedMediaUrl(user.avatarUrl)) {
+            preview.appendChild(window.createPreviewItem(user.avatarUrl, () => {
+              document.getElementById('userFormAvatar').value = '';
+            }));
+          }
+        }
+      })
+      .catch(error => {
+        console.error(error);
+        window.showToast(error.message || 'The user could not be loaded.', 'error');
+      });
+
+    document.getElementById('userModal').classList.add('active');
+  };
 
   const originalResetUserForm = window.resetUserForm;
   if (typeof originalResetUserForm === 'function') {
