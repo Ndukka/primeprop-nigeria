@@ -2,12 +2,13 @@ import {
   enforceFeedbackRateLimit,
   feedbackWriteRequestError,
   findReviewerSession,
-  getCookie,
-  validateReviewerCsrf,
-  FEEDBACK_CSRF_COOKIE,
   type FeedbackBindings,
   type ReviewerSession,
 } from './feedback-policy';
+import {
+  reviewerRequestProof,
+  validateSessionCsrf,
+} from './feedback-csrf';
 
 export function feedbackEnv(c: any): FeedbackBindings {
   return c.env as FeedbackBindings;
@@ -60,12 +61,6 @@ function hasProfessionalSessionCookie(request: Request): boolean {
   return /(?:^|;\s*)pp_(?:session|refresh)=/.test(cookie);
 }
 
-function hasReviewerAuthorizationProof(request: Request): boolean {
-  const csrf = getCookie(request, FEEDBACK_CSRF_COOKIE);
-  const authorization = request.headers.get('Authorization') || '';
-  return Boolean(csrf) && authorization === `Feedback ${csrf}`;
-}
-
 export async function requireReviewerWrite(
   c: any,
   routeKey: string,
@@ -74,7 +69,7 @@ export async function requireReviewerWrite(
   const env = feedbackEnv(c);
   const requestError = feedbackWriteRequestError(c.req.raw, env);
   if (requestError) return c.json({ success: false, message: requestError }, 403);
-  if (!hasReviewerAuthorizationProof(c.req.raw)) {
+  if (!reviewerRequestProof(c.req.raw)) {
     return c.json({ success: false, message: 'Reviewer request proof is missing.' }, 403);
   }
 
@@ -90,7 +85,7 @@ export async function requireReviewerWrite(
 
   const session = await findReviewerSession(c.req.raw, env);
   if (!session) return c.json({ success: false, message: 'Continue with Google to submit feedback.' }, 401);
-  if (!await validateReviewerCsrf(c.req.raw, session)) {
+  if (!await validateSessionCsrf(c.req.raw, session)) {
     return c.json({ success: false, message: 'CSRF token mismatch.' }, 403);
   }
   if (session.banned) {
