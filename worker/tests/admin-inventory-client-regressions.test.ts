@@ -72,7 +72,9 @@ describe('administrator inventory browser regressions', () => {
     expect(compat).toContain('email.disabled = Boolean(id)');
     expect(compat).toContain('/auth/admin-users/${encodeURIComponent(id)}');
     expect(compat).toContain("body: JSON.stringify({ account_status: accountStatus })");
-    expect(compat).toContain('await window.loadUsersData()');
+    expect(compat).toContain('window.loadUsersData(),');
+    expect(compat).toContain('window.loadData(),');
+    expect(compat).toContain('loadOwnerStatuses(),');
   });
 
   it('overrides compiled hidden table classes with explicit display values', () => {
@@ -80,6 +82,7 @@ describe('administrator inventory browser regressions', () => {
 
     expect(compat).toContain('window.switchTab = function switchTab(tab)');
     expect(compat).toContain("setRuntimeDisplay(listingsTableWrap, selected === 'listings' ? 'block' : 'none')");
+    expect(compat).toContain("setRuntimeDisplay(approvalsTableWrap, selected === 'approvals' ? 'block' : 'none')");
     expect(compat).toContain("setRuntimeDisplay(districtsTableWrap, selected === 'districts' ? 'block' : 'none')");
     expect(compat).toContain("setRuntimeDisplay(usersTableWrap, selected === 'users' ? 'block' : 'none')");
     expect(compat).toContain("setRuntimeDisplay(listingsToolbar, selected === 'listings' ? 'flex' : 'none')");
