@@ -9,6 +9,13 @@
   const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
   const PAGE_SIZE = 100;
   const MAX_PAGES = 100;
+  const MANUAL_MEDIA_FIELD_IDS = [
+    'formImages',
+    'districtFormImage',
+    'formAgentAvatar',
+    'userFormAvatar',
+    'profileAvatar',
+  ];
 
   function csrfToken() {
     const match = document.cookie.match(/(?:^|;\s*)pp_csrf=([^;]*)/);
@@ -178,6 +185,44 @@
     const response = await fetch('/auth/logout', normalizeOptions({ method: 'POST' }));
     await parseJsonResponse(response, '/auth/logout');
     window.location.replace('/login?loggedOut=1');
+  }
+
+  function hideManualMediaField(field) {
+    if (!(field instanceof HTMLElement) || field.dataset.ppUploadOnly === 'true') return;
+    field.dataset.ppUploadOnly = 'true';
+    field.hidden = true;
+    field.tabIndex = -1;
+    field.setAttribute('aria-hidden', 'true');
+    if ('readOnly' in field) field.readOnly = true;
+
+    if (field.id === 'profileAvatar') {
+      const group = field.closest('.form-group');
+      if (group) group.hidden = true;
+      return;
+    }
+
+    const label = field.previousElementSibling;
+    if (label instanceof HTMLLabelElement && /paste|url/i.test(label.textContent || '')) {
+      label.hidden = true;
+    }
+  }
+
+  function applyUploadOnlyMediaPolicy() {
+    for (const id of MANUAL_MEDIA_FIELD_IDS) {
+      hideManualMediaField(document.getElementById(id));
+    }
+  }
+
+  function startUploadOnlyMediaPolicy() {
+    applyUploadOnlyMediaPolicy();
+    const observer = new MutationObserver(() => applyUploadOnlyMediaPolicy());
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startUploadOnlyMediaPolicy, { once: true });
+  } else {
+    startUploadOnlyMediaPolicy();
   }
 
   window.PrimePropClient = Object.freeze({
